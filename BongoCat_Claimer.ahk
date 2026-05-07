@@ -32,6 +32,15 @@
 #SingleInstance Force  ; Prevent multiple instances of this script running at once
 
 ; -------------------------------------------------------
+;  VERSION
+;  Checked against version.txt on GitHub at startup.
+;  To release a new version: bump this string and push
+;  version.txt with the same value to the repo.
+; -------------------------------------------------------
+currentVersion := "1.0.0"
+githubRawBase  := "https://raw.githubusercontent.com/engise/BongoCat-Claimer/main/"
+
+; -------------------------------------------------------
 ;  DEFAULT VALUES
 ;  These are the fallback values used if BongoCat.ini
 ;  doesn't exist yet. Once the .ini is created, all values
@@ -99,10 +108,16 @@ hkQuit        := "F7"
 
 ; -------------------------------------------------------
 ;  STARTUP
-;  Load config from .ini, then register all hotkeys.
-;  Order matters: LoadConfig must run before RegisterHotkeys
-;  so the hk* variables are populated from the .ini first.
+;  If this file has "_new" in its name, it was downloaded
+;  as an update — run SelfUpdate() to replace the old file.
+;  Otherwise do the normal startup sequence.
 ; -------------------------------------------------------
+if InStr(A_ScriptFullPath, "_new.ahk") {
+    SelfUpdate()
+    return
+}
+
+CheckForUpdate()
 LoadConfig()
 RegisterHotkeys()
 
@@ -205,6 +220,117 @@ WriteDefaultIni() {
     IniWrite("F10", iniFile, "Hotkeys", "Setup")
     IniWrite("F12", iniFile, "Hotkeys", "Claim")
     IniWrite("F7",  iniFile, "Hotkeys", "Quit")
+}
+
+; -------------------------------------------------------
+;  CHECKFORUPDATE
+;  Fetches version.txt from GitHub and compares it to
+;  currentVersion. If a newer version is available, asks
+;  the user whether to update.
+;
+;  Update process (no extra software needed):
+;    1. Download new .ahk via WinHTTP (built into Windows)
+;    2. Save as BongoCat_Claimer_new.ahk next to current file
+;    3. Launch the new file
+;    4. The new instance detects it has "_new" in its path,
+;       waits briefly, then replaces the old file and relaunches
+;       from the final path
+;
+;  If GitHub is unreachable (no internet, rate limit, etc.)
+;  the check silently fails and the script continues normally.
+; -------------------------------------------------------
+CheckForUpdate() {
+    global currentVersion, githubRawBase
+
+    ; Fetch version.txt from GitHub using WinHTTP (no external tools needed)
+    try {
+        http := ComObject("WinHttp.WinHttpRequest.5.1")
+        http.Open("GET", githubRawBase "version.txt", false)
+        http.Send()
+        latestVersion := Trim(http.ResponseText)
+    } catch {
+        return  ; No internet or GitHub unreachable — silently skip
+    }
+
+    ; Validate response looks like a version string
+    if !RegExMatch(latestVersion, "^\d+\.\d+\.\d+$")
+        return  ; Unexpected response — skip
+
+    ; Compare versions — only prompt if remote is strictly newer
+    if !IsNewerVersion(currentVersion, latestVersion)
+        return
+
+    ; Ask the user
+    result := MsgBox(
+        "A new version of Bongo Cat Claimer is available!`n`n"
+        "Current version:  " currentVersion "`n"
+        "Latest version:   " latestVersion "`n`n"
+        "Update now?",
+        "Update Available",
+        0x4 | 0x20  ; Yes/No + question icon
+    )
+
+    if (result != "Yes")
+        return
+
+    ; Download new script
+    newPath := A_ScriptDir "\BongoCat_Claimer_new.ahk"
+    try {
+        http.Open("GET", githubRawBase "BongoCat_Claimer.ahk", false)
+        http.Send()
+        if (http.Status != 200)
+            throw Error("HTTP " http.Status)
+        FileOpen(newPath, "w").Write(http.ResponseText)
+    } catch as e {
+        MsgBox("Update failed: " e.Message "`n`nPlease download manually from GitHub.", "Update Error", 0x10)
+        return
+    }
+
+    ; Launch the new version — it will handle replacing this file
+    Run('"' A_AhkPath '" "' newPath '"')
+    ExitApp()
+}
+
+; -------------------------------------------------------
+;  SELFUPDATE
+;  Called automatically when the script detects it was
+;  launched as a "_new" file (i.e. it IS the update).
+;  Waits for the old instance to exit, replaces the file,
+;  then relaunches from the clean path.
+; -------------------------------------------------------
+SelfUpdate() {
+    oldPath  := StrReplace(A_ScriptFullPath, "_new.ahk", ".ahk")
+    Sleep(800)  ; Give the old instance time to exit
+
+    try {
+        FileDelete(oldPath)
+        FileMove(A_ScriptFullPath, oldPath)
+    } catch as e {
+        MsgBox("Could not replace old file: " e.Message "`n`nPlease rename manually.", "Update Error", 0x10)
+        return
+    }
+
+    Run('"' A_AhkPath '" "' oldPath '"')
+    ExitApp()
+}
+
+; -------------------------------------------------------
+;  ISNEWERVERSIONERSION
+;  Compares two "major.minor.patch" version strings.
+;  Returns true if `latest` is strictly greater than `current`.
+; -------------------------------------------------------
+IsNewerVersion(current, latest) {
+    cs := StrSplit(current, ".")
+    ls := StrSplit(latest,  ".")
+    loop 3 {
+        cv := (cs.Length >= A_Index) ? Integer(cs[A_Index]) : 0
+        lv := (ls.Length >= A_Index) ? Integer(ls[A_Index]) : 0
+        if (lv > cv)
+            return true
+        if (lv < cv)
+            return false
+    }
+    return false  ; Versions are equal
 }
 
 ; -------------------------------------------------------
