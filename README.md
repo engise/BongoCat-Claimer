@@ -34,18 +34,24 @@ A `BongoCat.ini` config file will be created automatically in the same folder th
 
 ---
 
-## First-time Setup
+## Setup
 
-Before the auto-claimer works, you need to tell the script where your cat is on screen. This is a **single click** — the script figures out the chest positions automatically.
+F10 behaves differently depending on whether you've run it before.
+
+### First time (no `BongoCat.ini` yet)
 
 1. Make sure Bongo Cat is running and **both chests are visible** (the `1000` counters are shown)
 2. Press **F10** to enter setup mode
 3. Click somewhere on the **upper body or forehead of your cat** — roughly the center horizontally
-4. The script calculates the left and right chest positions using a fixed offset (82px by default), claims both immediately, and starts the 30.5-minute timer
+4. The script calculates both chest positions using a fixed offset (82px by default), **claims both chests immediately**, and starts the 30.5-minute timer
 
-> ℹ️ The two chests always appear at a fixed distance on either side of the cat. If your cat moves, just press F10 and click again — it takes one second.
+### Moving the cat (subsequent F10 presses)
 
-> ℹ️ If the script misses the chests (slightly off on your screen), you can adjust the **Chest offset from center** value in Settings (F5) without re-running setup.
+If you drag your cat to a new position, press **F10** and click the cat center again. This updates the coordinates only — **the claim timers are not reset**. You don't need to have chests available to do this.
+
+The only way to reset the timers is **F12** (Force Claim).
+
+> ℹ️ If the script misses the chests (slightly off on your screen), adjust the **Chest offset from center** value in Settings (F5) without re-running setup.
 
 ---
 
@@ -60,7 +66,7 @@ All hotkeys except F5 are fully rebindable from the Settings screen.
 | **F7** | Quit the script |
 | **F8** | Toggle Spam on/off |
 | **F9** | Toggle the overlay timer GUI |
-| **F10** | Run chest coordinate setup |
+| **F10** | Setup — first run claims chests; subsequent runs update position only (timers unchanged) |
 | **F12** | Force claim both chests right now |
 
 ---

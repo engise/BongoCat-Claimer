@@ -44,7 +44,7 @@ exeName       := "BongoCat.exe"               ; Process name to target for click
 ; --- Claimer ---
 claimOffset   := 30.5 * 60 * 1000  ; Milliseconds between auto-claims (30.5 min default).
                                     ; Slightly over 30 to handle any timer drift in Bongo Cat.
-guiOffsetY    := 60                 ; How many pixels above each chest the overlay timer appears
+guiOffsetY    := 40                 ; How many pixels above each chest the overlay timer appears
 
 ; --- Spam / Typing ---
 clicking      := false   ; Whether Realistic Typing is currently active
@@ -78,9 +78,11 @@ cosX          := 0       ; Derived: catCenterX + chestOffset
 cosY          := 0       ; Same Y as cat center
 skinNext      := 0       ; A_TickCount timestamp when Skin chest can next be claimed
 cosNext       := 0       ; A_TickCount timestamp when Cosmetic chest can next be claimed
-setupStep     := 0       ; Tracks setup wizard progress: 0=idle, 1=waiting for skin click, 2=waiting for cos click
-bongohwnd     := 0       ; Window handle of BongoCat.exe (used for focus restoration after clicks)
-claiming      := false   ; True while DoClick is running — used to pause Spam during a claim
+setupStep      := 0       ; Tracks setup wizard progress: 0=idle, 1=waiting for cat center click
+bongohwnd      := 0       ; Window handle of BongoCat.exe (used for focus restoration after clicks)
+claiming       := false   ; True while DoClick is running — used to pause Spam during a claim
+isInitialSetup := false   ; True when .ini doesn't exist yet — initial setup claims chests immediately.
+                           ; False on subsequent setups — only updates coordinates, timers unchanged.
 
 ; --- Overlay GUI state ---
 guiVisible    := false   ; Whether the countdown overlay windows are currently shown
@@ -119,6 +121,7 @@ LoadConfig() {
 
     if !FileExist(iniFile) {
         WriteDefaultIni()
+        isInitialSetup := true   ; Flag for StartSetup — first run needs to claim chests
         ToolTip("No config found. Press F10 to set up chest coordinates.")
         Sleep(3000)
         ToolTip()
@@ -583,17 +586,25 @@ ToggleOverlay(*) {
         ShowOverlayGuis()
 }
 
-; Start the chest coordinate setup wizard
+; Start the chest coordinate setup wizard.
+; Behaviour differs based on whether this is the first run:
+;   - Initial setup (no .ini existed): claims chests immediately after clicking, starts timers
+;   - Subsequent setup (.ini exists): only updates cat center coordinates, timers are NOT reset
 StartSetup(*) {
-    global setupStep, bongohwnd, exeName
+    global setupStep, bongohwnd, exeName, isInitialSetup, iniFile
     bongohwnd := WinExist("ahk_exe " exeName)
     if !bongohwnd {
         MsgBox("Bongo Cat not found! Make sure it's running.", "Error", 16)
         return
     }
-    HideOverlayGuis()    ; Hide timers so they don't interfere with clicking
+    HideOverlayGuis()
     setupStep := 1
-    ToolTip("SETUP: Click the CENTER of your cat")
+
+    if isInitialSetup
+        ToolTip("SETUP (first run): Click the CENTER of your cat — chests will be claimed immediately")
+    else
+        ToolTip("SETUP: Click the CENTER of your cat — timers will NOT be reset")
+
     InstallSetupHook()
 }
 
@@ -752,6 +763,7 @@ DoSpam() {
 SetupPoll() {
     global setupStep, catCenterX, catCenterY, skinX, skinY, cosX, cosY
     global iniFile, claimOffset, skinNext, cosNext, bongohwnd, chestOffset
+    global isInitialSetup
 
     if (setupStep = 0) {
         SetTimer(SetupPoll, 0)
@@ -762,7 +774,7 @@ SetupPoll() {
     MouseGetPos(&mx, &my)
 
     if (setupStep = 1) {
-        ; Single click on cat center — derive both chest positions from offset
+        ; Record cat center and derive chest positions
         catCenterX := mx
         catCenterY := my
         skinX      := catCenterX - chestOffset
@@ -775,30 +787,43 @@ SetupPoll() {
         UninstallSetupHook()
         ToolTip("")
 
-        ; Save center coords to .ini (chests are always derived, never stored directly)
+        ; Always save the new center coordinates
         IniWrite(catCenterX, iniFile, "Coords", "CatCenterX")
         IniWrite(catCenterY, iniFile, "Coords", "CatCenterY")
 
-        ; Immediately claim both chests and record timestamps
-        Sleep(200)
-        now      := A_TickCount
-        DoClick(skinX, skinY, bongohwnd)
-        skinNext := now + claimOffset
-        Sleep(300)
-        DoClick(cosX, cosY, bongohwnd)
-        cosNext  := skinNext + 1000
+        if isInitialSetup {
+            ; First run — claim chests immediately and start all timers
+            isInitialSetup := false
 
-        IniWrite(skinNext, iniFile, "Timestamps", "SkinNext")
-        IniWrite(cosNext,  iniFile, "Timestamps", "CosNext")
+            Sleep(200)
+            now      := A_TickCount
+            DoClick(skinX, skinY, bongohwnd)
+            skinNext := now + claimOffset
+            Sleep(300)
+            DoClick(cosX, cosY, bongohwnd)
+            cosNext  := skinNext + 1000
 
-        ToolTip("Setup complete!")
-        Sleep(2000)
-        ToolTip()
+            IniWrite(skinNext, iniFile, "Timestamps", "SkinNext")
+            IniWrite(cosNext,  iniFile, "Timestamps", "CosNext")
 
-        SetTimer(AutoClaim, 1000)
-        CreateOverlayGuis()
-        ShowOverlayGuis()
-        SetTimer(UpdateGui, 1000)
+            ToolTip("Setup complete! Chests claimed.")
+            Sleep(2000)
+            ToolTip()
+
+            SetTimer(AutoClaim, 1000)
+            CreateOverlayGuis()
+            ShowOverlayGuis()
+            SetTimer(UpdateGui, 1000)
+        } else {
+            ; Subsequent run — only update position, leave timers completely untouched
+            ToolTip("Position updated. Timers unchanged.")
+            Sleep(2000)
+            ToolTip()
+
+            ; Rebuild overlay GUIs at the new position
+            CreateOverlayGuis()
+            ShowOverlayGuis()
+        }
     }
 }
 
