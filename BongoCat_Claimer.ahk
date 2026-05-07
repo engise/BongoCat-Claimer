@@ -1,55 +1,93 @@
 ; =============================================
 ;  Bongo Cat - All-in-One Script
 ;  AutoHotkey v2
-;  F5 = Settings (фиксиран)
-;  Всички останали hotkey-и са конфигурируеми
-;  от Settings > Hotkeys
+;
+;  PURPOSE:
+;    Automates three things for the Bongo Cat Steam overlay:
+;      1. Auto-claims both chests every ~30.5 minutes
+;      2. Realistic Typing — generates keystrokes in a human-like
+;         burst/pause pattern to accumulate points passively
+;      3. Spam — sends keystrokes as fast as possible for maximum
+;         point generation when away from the computer
+;
+;  FIXED HOTKEY:
+;    F5 = Settings (cannot be rebound)
+;
+;  ALL OTHER HOTKEYS are configurable from Settings (F5 > Hotkeys).
+;  Default bindings:
+;    F6  = Toggle Realistic Typing
+;    F7  = Quit
+;    F8  = Toggle Spam
+;    F9  = Toggle overlay timer GUI
+;    F10 = Run chest coordinate setup
+;    F12 = Force claim both chests now
+;
+;  CONFIG FILE:
+;    BongoCat.ini is created automatically next to this .ahk file
+;    on first run. It stores all settings, chest coordinates, and
+;    claim timestamps so they survive script restarts.
 ; =============================================
 
 #Requires AutoHotkey v2.0
-#SingleInstance Force
+#SingleInstance Force  ; Prevent multiple instances of this script running at once
 
 ; -------------------------------------------------------
-;  Defaults
+;  DEFAULT VALUES
+;  These are the fallback values used if BongoCat.ini
+;  doesn't exist yet. Once the .ini is created, all values
+;  are read from there instead.
 ; -------------------------------------------------------
-iniFile       := A_ScriptDir "\BongoCat.ini"
-exeName       := "BongoCat.exe"
 
-; Claimer
-claimOffset   := 30.5 * 60 * 1000
-guiOffsetY    := 40
+iniFile       := A_ScriptDir "\BongoCat.ini"  ; Config file sits next to the script
+exeName       := "BongoCat.exe"               ; Process name to target for clicks
 
-; Spam / Typing
-clicking      := false
-spamming      := false
-userIdle      := false
-idleTimeout   := 1000
-burstMin      := 3
-burstMax      := 8
-fastDelayMin  := 60
-fastDelayMax  := 140
-pauseMin      := 300
-pauseMax      := 900
-spamInterval  := 1
-clickCount    := 3
+; --- Claimer ---
+claimOffset   := 30.5 * 60 * 1000  ; Milliseconds between auto-claims (30.5 min default).
+                                    ; Slightly over 30 to handle any timer drift in Bongo Cat.
+guiOffsetY    := 60                 ; How many pixels above each chest the overlay timer appears
 
-; Chest state
-skinX         := 0
-skinY         := 0
-cosX          := 0
-cosY          := 0
-skinNext      := 0
-cosNext       := 0
-setupStep     := 0
-bongohwnd     := 0
-claiming      := false
+; --- Spam / Typing ---
+clicking      := false   ; Whether Realistic Typing is currently active
+spamming      := false   ; Whether Spam is currently active
+userIdle      := false   ; True when the user hasn't moved/clicked for idleTimeout ms.
+                         ; Realistic Typing only fires when userIdle = true.
+idleTimeout   := 1000    ; ms of inactivity before userIdle flips to true
 
-; Overlay GUI
-guiVisible    := false
-skinGui       := ""
-cosGui        := ""
+; Realistic Typing rhythm settings:
+burstMin      := 3       ; Minimum keystrokes sent in one burst
+burstMax      := 8       ; Maximum keystrokes sent in one burst
+fastDelayMin  := 60      ; Minimum ms delay between keystrokes within a burst
+fastDelayMax  := 140     ; Maximum ms delay between keystrokes within a burst
+pauseMin      := 300     ; Minimum ms pause between bursts
+pauseMax      := 900     ; Maximum ms pause between bursts
 
-; Hotkey defaults
+spamInterval  := 1       ; ms between spam keystroke batches (lower = faster)
+clickCount    := 3       ; How many times to click each chest per claim attempt.
+                         ; More clicks = more reliable on laggy systems.
+chestOffset   := 82      ; Horizontal pixel distance from cat center to each chest.
+                         ; Left chest = centerX - chestOffset, Right chest = centerX + chestOffset.
+                         ; Measured at default Bongo Cat scale — adjust in Settings if needed.
+
+; --- Chest state ---
+catCenterX    := 0       ; Screen X coordinate of the cat center (clicked during setup)
+catCenterY    := 0       ; Screen Y coordinate of the cat center (clicked during setup)
+; Chest positions are derived at claim time: skinX = catCenterX - chestOffset, cosX = catCenterX + chestOffset
+skinX         := 0       ; Derived: catCenterX - chestOffset (recalculated each claim)
+skinY         := 0       ; Same Y as cat center
+cosX          := 0       ; Derived: catCenterX + chestOffset
+cosY          := 0       ; Same Y as cat center
+skinNext      := 0       ; A_TickCount timestamp when Skin chest can next be claimed
+cosNext       := 0       ; A_TickCount timestamp when Cosmetic chest can next be claimed
+setupStep     := 0       ; Tracks setup wizard progress: 0=idle, 1=waiting for skin click, 2=waiting for cos click
+bongohwnd     := 0       ; Window handle of BongoCat.exe (used for focus restoration after clicks)
+claiming      := false   ; True while DoClick is running — used to pause Spam during a claim
+
+; --- Overlay GUI state ---
+guiVisible    := false   ; Whether the countdown overlay windows are currently shown
+skinGui       := ""      ; GUI object for the Skin chest timer overlay
+cosGui        := ""      ; GUI object for the Cosmetic chest timer overlay
+
+; --- Hotkey bindings (defaults, overridden by .ini) ---
 hkTyping      := "F6"
 hkSpam        := "F8"
 hkOverlay     := "F9"
@@ -58,13 +96,20 @@ hkClaim       := "F12"
 hkQuit        := "F7"
 
 ; -------------------------------------------------------
-;  Startup
+;  STARTUP
+;  Load config from .ini, then register all hotkeys.
+;  Order matters: LoadConfig must run before RegisterHotkeys
+;  so the hk* variables are populated from the .ini first.
 ; -------------------------------------------------------
 LoadConfig()
 RegisterHotkeys()
 
 ; -------------------------------------------------------
-;  LoadConfig
+;  LOADCONFIG
+;  Reads all settings from BongoCat.ini.
+;  If the file doesn't exist, writes default values and
+;  exits early (user still needs to run setup via F10).
+;  If coordinates are missing, shows a reminder tooltip.
 ; -------------------------------------------------------
 LoadConfig() {
     global iniFile, claimOffset, idleTimeout
@@ -74,18 +119,18 @@ LoadConfig() {
 
     if !FileExist(iniFile) {
         WriteDefaultIni()
-        ToolTip("Няма config. Натисни F10 за Setup на chest-овете.")
+        ToolTip("No config found. Press F10 to set up chest coordinates.")
         Sleep(3000)
         ToolTip()
         return
     }
 
-    ; Settings
+    ; Settings section
     claimMins    := Float(IniRead(iniFile,   "Settings", "ClaimMinutes",  30.5))
-    claimOffset  := claimMins * 60 * 1000
+    claimOffset  := claimMins * 60 * 1000  ; Convert minutes → milliseconds
     idleTimeout  := Integer(IniRead(iniFile, "Settings", "IdleTimeout",   1000))
 
-    ; Typing
+    ; Typing section
     burstMin     := Integer(IniRead(iniFile, "Typing", "BurstMin",     3))
     burstMax     := Integer(IniRead(iniFile, "Typing", "BurstMax",     8))
     fastDelayMin := Integer(IniRead(iniFile, "Typing", "FastDelayMin", 60))
@@ -94,8 +139,9 @@ LoadConfig() {
     pauseMax     := Integer(IniRead(iniFile, "Typing", "PauseMax",     900))
     spamInterval := Integer(IniRead(iniFile, "Typing", "SpamInterval", 1))
     clickCount   := Integer(IniRead(iniFile, "Typing", "ClickCount",   3))
+    chestOffset  := Integer(IniRead(iniFile, "Typing", "ChestOffset",  82))
 
-    ; Hotkeys
+    ; Hotkeys section — read saved bindings, fall back to defaults if missing
     hkTyping    := IniRead(iniFile, "Hotkeys", "Typing",    "F6")
     hkSpam      := IniRead(iniFile, "Hotkeys", "Spam",      "F8")
     hkOverlay   := IniRead(iniFile, "Hotkeys", "Overlay",   "F9")
@@ -103,27 +149,40 @@ LoadConfig() {
     hkClaim     := IniRead(iniFile, "Hotkeys", "Claim",     "F12")
     hkQuit      := IniRead(iniFile, "Hotkeys", "Quit",      "F7")
 
-    ; Coords
-    skinX    := Integer(IniRead(iniFile, "Coords",     "SkinX",    0))
-    skinY    := Integer(IniRead(iniFile, "Coords",     "SkinY",    0))
-    cosX     := Integer(IniRead(iniFile, "Coords",     "CosX",     0))
-    cosY     := Integer(IniRead(iniFile, "Coords",     "CosY",     0))
+    ; Coords section — center of the cat, chests are derived from chestOffset
+    catCenterX := Integer(IniRead(iniFile, "Coords", "CatCenterX", 0))
+    catCenterY := Integer(IniRead(iniFile, "Coords", "CatCenterY", 0))
+
+    ; Derive chest positions from center + offset
+    skinX := catCenterX - chestOffset
+    skinY := catCenterY
+    cosX  := catCenterX + chestOffset
+    cosY  := catCenterY
+
+    ; Timestamps section — A_TickCount values of next scheduled claim
+    ; These persist across restarts so the timer survives closing the script
     skinNext := Integer(IniRead(iniFile, "Timestamps", "SkinNext", 0))
     cosNext  := Integer(IniRead(iniFile, "Timestamps", "CosNext",  0))
 
-    if (skinX = 0 || cosX = 0) {
-        ToolTip("Няма chest координати. Натисни F10 за Setup.")
+    if (catCenterX = 0) {
+        ToolTip("No chest coordinates found. Press F10 to run setup.")
         Sleep(3000)
         ToolTip()
         return
     }
 
-    SetTimer(AutoClaim, 1000)
+    ; All good — start the auto-claim checker, build the overlay, start the GUI update loop
+    SetTimer(AutoClaim, 1000)   ; Check every second whether a chest is ready
     CreateOverlayGuis()
     ShowOverlayGuis()
-    SetTimer(UpdateGui, 1000)
+    SetTimer(UpdateGui, 1000)   ; Refresh overlay countdown text every second
 }
 
+; -------------------------------------------------------
+;  WRITEDEFAULTINI
+;  Creates BongoCat.ini with all default values.
+;  Called only when the file doesn't exist yet.
+; -------------------------------------------------------
 WriteDefaultIni() {
     global iniFile
     IniWrite(30.5, iniFile, "Settings", "ClaimMinutes")
@@ -136,6 +195,7 @@ WriteDefaultIni() {
     IniWrite(900,  iniFile, "Typing",   "PauseMax")
     IniWrite(1,    iniFile, "Typing",   "SpamInterval")
     IniWrite(3,    iniFile, "Typing",   "ClickCount")
+    IniWrite(82,   iniFile, "Typing",   "ChestOffset")
     IniWrite("F6",  iniFile, "Hotkeys", "Typing")
     IniWrite("F8",  iniFile, "Hotkeys", "Spam")
     IniWrite("F9",  iniFile, "Hotkeys", "Overlay")
@@ -145,30 +205,42 @@ WriteDefaultIni() {
 }
 
 ; -------------------------------------------------------
-;  Динамична регистрация на hotkey-и
+;  HOTKEY REGISTRATION
+;  RegisterHotkeys() binds all configurable actions to
+;  their current hk* values. Called once on startup and
+;  again after settings are saved with new bindings.
+;
+;  UnregisterHotkeys() disables all current bindings
+;  before re-registering with new keys, so there are no
+;  conflicts or duplicate bindings.
 ; -------------------------------------------------------
 RegisterHotkeys() {
-
-    Hotkey(hkTyping,    ToggleTyping)
-    Hotkey(hkSpam,      ToggleSpam)
-    Hotkey(hkOverlay,   ToggleOverlay)
-    Hotkey(hkSetup,     StartSetup)
-    Hotkey(hkClaim,     ManualClaim)
-    Hotkey(hkQuit,      QuitScript)
+    global hkTyping, hkSpam, hkOverlay, hkSetup, hkClaim, hkQuit
+    Hotkey(hkTyping,  ToggleTyping)
+    Hotkey(hkSpam,    ToggleSpam)
+    Hotkey(hkOverlay, ToggleOverlay)
+    Hotkey(hkSetup,   StartSetup)
+    Hotkey(hkClaim,   ManualClaim)
+    Hotkey(hkQuit,    QuitScript)
 }
 
 UnregisterHotkeys() {
-
-    try Hotkey(hkTyping,    "Off")
-    try Hotkey(hkSpam,      "Off")
-    try Hotkey(hkOverlay,   "Off")
-    try Hotkey(hkSetup,     "Off")
-    try Hotkey(hkClaim,     "Off")
-    try Hotkey(hkQuit,      "Off")
+    global hkTyping, hkSpam, hkOverlay, hkSetup, hkClaim, hkQuit
+    ; try/catch each one individually — if a binding doesn't exist yet it won't crash
+    try Hotkey(hkTyping,  "Off")
+    try Hotkey(hkSpam,    "Off")
+    try Hotkey(hkOverlay, "Off")
+    try Hotkey(hkSetup,   "Off")
+    try Hotkey(hkClaim,   "Off")
+    try Hotkey(hkQuit,    "Off")
 }
 
 ; -------------------------------------------------------
-;  F5 — Settings (фиксиран)
+;  F5 — SETTINGS (fixed hotkey, cannot be rebound)
+;
+;  Opens a native Windows-style settings dialog with four
+;  sections: Claimer, Realistic Typing, Spam, and Hotkeys.
+;  Changes are applied immediately on OK without restart.
 ; -------------------------------------------------------
 F5:: OpenSettings()
 
@@ -176,26 +248,30 @@ OpenSettings() {
     global iniFile, claimOffset, idleTimeout
     global burstMin, burstMax, fastDelayMin, fastDelayMax
     global pauseMin, pauseMax, spamInterval
+    global hkTyping, hkSpam, hkOverlay, hkSetup, hkClaim, hkQuit
 
     sg := Gui("+AlwaysOnTop", "Bongo Cat — Settings")
     sg.SetFont("s9", "Segoe UI")
     sg.MarginX := 12
     sg.MarginY := 10
 
-    lw  := 190  ; ширина на label колоната
-    ew  := 90   ; ширина на edit колоната
-    gw  := lw + ew + 30  ; ширина на GroupBox
-    row := "y+4"  ; вертикален gap между редовете
+    ; Layout constants — adjust these to change column widths
+    lw  := 190          ; Label column width (px)
+    ew  := 90           ; Edit field width (px)
+    gw  := lw + ew + 30 ; GroupBox width (auto-calculated)
+    row := "y+4"        ; Vertical gap between rows inside a GroupBox
 
-    ; --- Claimer ---
-    sg.Add("GroupBox", "w" gw " h78 Section", "Claimer")
-    sg.Add("Text",  "xp+10 yp+22 w" lw " h20 +0x200", "Claim интервал (минути):")
+    ; --- Claimer section ---
+    sg.Add("GroupBox", "w" gw " h104 Section", "Claimer")
+    sg.Add("Text",  "xp+10 yp+22 w" lw " h20 +0x200", "Claim interval (minutes):")
     sg.Add("Edit",  "vClaimMinutes x+8 w" ew " h20",
         Float(IniRead(iniFile, "Settings", "ClaimMinutes", 30.5)))
-    sg.Add("Text",  "xs+10 " row " w" lw " h20 +0x200", "Кликове на chest:")
+    sg.Add("Text",  "xs+10 " row " w" lw " h20 +0x200", "Clicks per chest:")
     sg.Add("Edit",  "vClickCount x+8 w" ew " h20 Number", clickCount)
+    sg.Add("Text",  "xs+10 " row " w" lw " h20 +0x200", "Chest offset from center (px):")
+    sg.Add("Edit",  "vChestOffset x+8 w" ew " h20 Number", chestOffset)
 
-    ; --- Realistic Typing ---
+    ; --- Realistic Typing section ---
     sg.Add("GroupBox", "xs w" gw " h188 y+10 Section", "Realistic Typing")
     sg.Add("Text",  "xp+10 yp+22 w" lw " h20 +0x200", "Burst min:")
     sg.Add("Edit",  "vBurstMin x+8 w" ew " h20 Number", burstMin)
@@ -212,13 +288,16 @@ OpenSettings() {
     sg.Add("Text",  "xs+10 " row " w" lw " h20 +0x200", "Idle timeout (ms):")
     sg.Add("Edit",  "vIdleTimeout x+8 w" ew " h20 Number", idleTimeout)
 
-    ; --- Spam ---
+    ; --- Spam section ---
     sg.Add("GroupBox", "xs w" gw " h52 y+10 Section", "Spam")
-    sg.Add("Text",  "xp+10 yp+22 w" lw " h20 +0x200", "Spam интервал (ms):")
+    sg.Add("Text",  "xp+10 yp+22 w" lw " h20 +0x200", "Spam interval (ms):")
     sg.Add("Edit",  "vSpamInterval x+8 w" ew " h20 Number", spamInterval)
 
-    ; --- Hotkeys ---
-    ; Текущите стойности се пазят в Map — бутоните ги update-ват
+    ; --- Hotkeys section ---
+    ; Current values live in hkMap (a Map object).
+    ; Each button calls StartCapture() when clicked, which listens for
+    ; the next keypress and updates both the button label and hkMap.
+    ; The actual save to .ini happens when OK is clicked.
     hkMap := Map(
         "Typing",  hkTyping,
         "Spam",    hkSpam,
@@ -228,8 +307,9 @@ OpenSettings() {
         "Quit",    hkQuit
     )
 
-    sg.Add("GroupBox", "xs w" gw " h182 y+10 Section", "Hotkeys  (натисни бутона, после натисни желания клавиш)")
+    sg.Add("GroupBox", "xs w" gw " h182 y+10 Section", "Hotkeys  (click a button, then press the desired key)")
 
+    ; MakeHkRow is a nested helper that adds one label+button row per hotkey
     MakeHkRow(label, key, sg, lw, ew, row) {
         sg.Add("Text", "xs+10 " row " w" lw " h20 +0x200", label)
         btn := sg.Add("Button", "x+8 w" ew " h20", hkMap[key])
@@ -240,11 +320,11 @@ OpenSettings() {
     MakeHkRow("Toggle Realistic Typing:", "Typing",  sg, lw, ew, "yp+22")
     MakeHkRow("Toggle Spam:",             "Spam",    sg, lw, ew, row)
     MakeHkRow("Toggle Overlay GUI:",      "Overlay", sg, lw, ew, row)
-    MakeHkRow("Setup chest координати:",  "Setup",   sg, lw, ew, row)
+    MakeHkRow("Setup chest coordinates:", "Setup",   sg, lw, ew, row)
     MakeHkRow("Force Claim:",             "Claim",   sg, lw, ew, row)
     MakeHkRow("Quit:",                    "Quit",    sg, lw, ew, row)
 
-    ; --- Бутони ---
+    ; OK saves everything; Cancel discards changes
     btnOK     := sg.Add("Button", "xs w" (gw//2 - 4) " y+14 Default", "OK")
     btnCancel := sg.Add("Button", "w" (gw//2 - 4) " x+8", "Cancel")
 
@@ -256,7 +336,14 @@ OpenSettings() {
 }
 
 ; -------------------------------------------------------
-;  Hotkey capture — натисни бутон, после клавиш
+;  STARTCAPTURE
+;  Called when a hotkey button in Settings is clicked.
+;  Waits for exactly one keypress (with optional modifiers),
+;  validates it as a usable hotkey, and updates the button
+;  label and hkMap entry.
+;
+;  The `capturing` flag prevents two captures running at once
+;  if the user clicks multiple buttons quickly.
 ; -------------------------------------------------------
 capturing := false
 
@@ -264,61 +351,70 @@ StartCapture(btn, key, hkMap, *) {
     global capturing
     if capturing
         return
-    capturing    := true
-    origText     := btn.Text
-    btn.Text     := "[ натисни клавиш... ]"
+    capturing := true
+    origText  := btn.Text
+    btn.Text  := "[ press a key... ]"
 
-    ; Слушай следващия клавиш с Input
-    ih := InputHook("L1 B")  ; L1 = 1 клавиш, B = блокира го
-    ih.KeyOpt("{All}", "ES") ; E = end on key, S = suppress
+    ; InputHook: L1 = stop after 1 key, B = block the keypress from reaching other apps
+    ih := InputHook("L1 B")
+    ih.KeyOpt("{All}", "ES")  ; E = end on any key, S = suppress it
     ih.Start()
     ih.Wait()
 
-    key2    := ih.EndKey
-    mods    := ""
+    key2 := ih.EndKey
+
+    ; Check which modifier keys are held at the moment of the keypress
+    mods := ""
     if GetKeyState("LCtrl",  "P") || GetKeyState("RCtrl",  "P")
-        mods .= "^"
+        mods .= "^"   ; Ctrl
     if GetKeyState("LAlt",   "P") || GetKeyState("RAlt",   "P")
-        mods .= "!"
+        mods .= "!"   ; Alt
     if GetKeyState("LShift", "P") || GetKeyState("RShift", "P")
-        mods .= "+"
+        mods .= "+"   ; Shift
     if GetKeyState("LWin",   "P") || GetKeyState("RWin",   "P")
-        mods .= "#"
+        mods .= "#"   ; Win
 
     hk := mods . key2
 
-    ; Тествай дали е валиден
+    ; Try registering the hotkey temporarily to validate the syntax.
+    ; If AHK throws an error, the key combination is not usable.
     try {
         Hotkey(hk, ToggleTyping, "Off")
         hkMap[key] := hk
         btn.Text   := hk
     } catch {
         btn.Text := origText
-        MsgBox("Невалиден клавиш: '" hk "'", "Грешка", 16)
+        MsgBox("Invalid key: '" hk "'", "Error", 16)
     }
 
     capturing := false
 }
 
+; -------------------------------------------------------
+;  SAVESETTINGSFROMMAP
+;  Triggered when OK is clicked in Settings.
+;  Validates input, unregisters old hotkeys, writes all
+;  values to .ini, applies them to live variables, and
+;  re-registers hotkeys with the new bindings.
+; -------------------------------------------------------
 SaveSettingsFromMap(sg, hkMap, *) {
     global iniFile, claimOffset, idleTimeout
     global burstMin, burstMax, fastDelayMin, fastDelayMax
     global pauseMin, pauseMax, spamInterval, clickCount
     global hkTyping, hkSpam, hkOverlay, hkSetup, hkClaim, hkQuit
 
-    saved := sg.Submit()
+    saved := sg.Submit()  ; Reads all vName control values into an object
 
-    ; Валидация
+    ; Basic validation
     cm := Float(saved.ClaimMinutes)
     if (cm <= 0) {
-        MsgBox("Claim минутите трябва да са > 0", "Грешка", 16)
+        MsgBox("Claim interval must be greater than 0.", "Error", 16)
         return
     }
 
-    ; Деregister стари hotkey-и
-    UnregisterHotkeys()
+    UnregisterHotkeys()  ; Remove old bindings before applying new ones
 
-    ; Запази в .ini
+    ; Persist to .ini
     IniWrite(saved.ClaimMinutes,  iniFile, "Settings", "ClaimMinutes")
     IniWrite(saved.IdleTimeout,   iniFile, "Settings", "IdleTimeout")
     IniWrite(saved.BurstMin,      iniFile, "Typing",   "BurstMin")
@@ -329,6 +425,7 @@ SaveSettingsFromMap(sg, hkMap, *) {
     IniWrite(saved.PauseMax,      iniFile, "Typing",   "PauseMax")
     IniWrite(saved.SpamInterval,  iniFile, "Typing",   "SpamInterval")
     IniWrite(saved.ClickCount,    iniFile, "Typing",   "ClickCount")
+    IniWrite(saved.ChestOffset,   iniFile, "Typing",   "ChestOffset")
     IniWrite(hkMap["Typing"],     iniFile, "Hotkeys",  "Typing")
     IniWrite(hkMap["Spam"],       iniFile, "Hotkeys",  "Spam")
     IniWrite(hkMap["Overlay"],    iniFile, "Hotkeys",  "Overlay")
@@ -336,7 +433,7 @@ SaveSettingsFromMap(sg, hkMap, *) {
     IniWrite(hkMap["Claim"],      iniFile, "Hotkeys",  "Claim")
     IniWrite(hkMap["Quit"],       iniFile, "Hotkeys",  "Quit")
 
-    ; Приложи веднага
+    ; Apply to live variables immediately (no restart needed)
     claimOffset  := cm * 60 * 1000
     idleTimeout  := Integer(saved.IdleTimeout)
     burstMin     := Integer(saved.BurstMin)
@@ -347,6 +444,11 @@ SaveSettingsFromMap(sg, hkMap, *) {
     pauseMax     := Integer(saved.PauseMax)
     spamInterval := Integer(saved.SpamInterval)
     clickCount   := Integer(saved.ClickCount)
+    chestOffset  := Integer(saved.ChestOffset)
+
+    ; Recalculate chest positions from saved center + new offset
+    skinX := catCenterX - chestOffset
+    cosX  := catCenterX + chestOffset
     hkTyping     := hkMap["Typing"]
     hkSpam       := hkMap["Spam"]
     hkOverlay    := hkMap["Overlay"]
@@ -354,35 +456,55 @@ SaveSettingsFromMap(sg, hkMap, *) {
     hkClaim      := hkMap["Claim"]
     hkQuit       := hkMap["Quit"]
 
-    ; Регистрирай новите hotkey-и
     RegisterHotkeys()
 
     sg.Destroy()
-    ToolTip("Settings запазени!")
+    ToolTip("Settings saved!")
     Sleep(1500)
     ToolTip()
 }
 
 ; -------------------------------------------------------
-;  Spam — Detect user activity
+;  USER ACTIVITY DETECTION
+;  Used by Realistic Typing to detect whether the user
+;  is actively at the keyboard/mouse.
+;
+;  How it works:
+;    - Any mouse button click or keyboard press (via ~* prefix,
+;      meaning "don't block the key") resets a one-shot timer.
+;    - Mouse movement is caught via OnMessage (WM_MOUSEMOVE = 0x0200).
+;    - After idleTimeout ms of no activity, ResumeAfterIdle fires
+;      and sets userIdle = true, allowing Realistic Typing to resume.
+;    - Any new activity sets userIdle = false immediately, pausing it.
+;
+;  The ~* prefix means the hotkey fires but the key still passes through
+;  to whatever application is active — so this is purely passive monitoring.
 ; -------------------------------------------------------
 ~*LButton:: SetTimer(ResumeAfterIdle, -idleTimeout)
 ~*RButton:: SetTimer(ResumeAfterIdle, -idleTimeout)
 ~*MButton:: SetTimer(ResumeAfterIdle, -idleTimeout)
-~*$a::      SetTimer(ResumeAfterIdle, -idleTimeout)
+~*$a::      SetTimer(ResumeAfterIdle, -idleTimeout)  ; Any 'a' keypress acts as a proxy for general keyboard activity
 
-OnMessage(0x0200, WM_MOUSEMOVE)
+OnMessage(0x0200, WM_MOUSEMOVE)  ; Register WM_MOUSEMOVE message handler
 WM_MOUSEMOVE(wParam, lParam, msg, hwnd2) {
     global userIdle
     userIdle := false
-    SetTimer(ResumeAfterIdle, -idleTimeout)
+    SetTimer(ResumeAfterIdle, -idleTimeout)  ; Restart the idle countdown
 }
 
 ResumeAfterIdle() {
     global userIdle
-    userIdle := true
+    userIdle := true  ; No activity for idleTimeout ms — safe to resume typing
 }
 
+; -------------------------------------------------------
+;  SENDF13
+;  Sends a single F13 keypress.
+;  F13 is used because it's a real key that Bongo Cat counts
+;  as a point, but no application uses it, so it won't
+;  interfere with anything. F13-F23 are all blocked below
+;  so they can't accidentally trigger anything.
+; -------------------------------------------------------
 SendF13() {
     SendMode("Event")
     SendEvent("{F13 down}")
@@ -392,10 +514,16 @@ SendF13() {
 }
 
 ; -------------------------------------------------------
-;  Actions (извикват се от hotkey-ите)
+;  TOGGLE ACTIONS
+;  These are called by the registered hotkeys.
+;  Each toggle turns off the other mode if it's active
+;  (Spam and Realistic Typing are mutually exclusive).
 ; -------------------------------------------------------
+
+; Toggle Realistic Typing on/off
 ToggleTyping(*) {
     global clicking, spamming, userIdle
+    ; If spam is running, turn it off first
     if spamming {
         spamming := false
         SetTimer(DoSpam, 0)
@@ -404,7 +532,7 @@ ToggleTyping(*) {
         ToolTip()
     }
     clicking := !clicking
-    userIdle := true
+    userIdle := true  ; Assume idle so typing can start immediately
     if clicking {
         ToolTip("Bongo Cat: ON (Realistic)")
         SetTimer(DoTypingRhythm, 1)
@@ -416,8 +544,10 @@ ToggleTyping(*) {
     }
 }
 
+; Toggle Spam on/off
 ToggleSpam(*) {
     global spamming, clicking, userIdle, spamInterval
+    ; If realistic typing is running, turn it off first
     if clicking {
         clicking := false
         SetTimer(DoTypingRhythm, 0)
@@ -429,6 +559,7 @@ ToggleSpam(*) {
     userIdle := true
     if spamming {
         SetTimer(DoSpam, spamInterval)
+        ; No tooltip on enable — intentionally silent to avoid interrupting work
     } else {
         SetTimer(DoSpam, 0)
         ToolTip("Bongo Cat: OFF")
@@ -437,10 +568,11 @@ ToggleSpam(*) {
     }
 }
 
+; Toggle the overlay countdown GUI
 ToggleOverlay(*) {
     global guiVisible, skinX
-    if (skinX = 0) {
-        ToolTip("Няма config. Направи Setup.")
+    if (catCenterX = 0) {
+        ToolTip("No config. Run setup first.")
         Sleep(2000)
         ToolTip()
         return
@@ -451,48 +583,58 @@ ToggleOverlay(*) {
         ShowOverlayGuis()
 }
 
+; Start the chest coordinate setup wizard
 StartSetup(*) {
     global setupStep, bongohwnd, exeName
     bongohwnd := WinExist("ahk_exe " exeName)
     if !bongohwnd {
-        MsgBox("Bongo Cat не е намерен!", "Грешка", 16)
+        MsgBox("Bongo Cat not found! Make sure it's running.", "Error", 16)
         return
     }
-    HideOverlayGuis()
+    HideOverlayGuis()    ; Hide timers so they don't interfere with clicking
     setupStep := 1
-    ToolTip("SETUP | Стъпка 1/2: Кликни върху SKIN chest-а")
+    ToolTip("SETUP: Click the CENTER of your cat")
     InstallSetupHook()
 }
 
+; Force claim both chests right now and reset the timers
 ManualClaim(*) {
     global skinX, skinY, cosX, cosY, bongohwnd, exeName
     global skinNext, cosNext, claimOffset, iniFile
 
-    if (skinX = 0) {
-        MsgBox("Няма координати. Направи Setup.", "Грешка", 16)
+    if (catCenterX = 0) {
+        MsgBox("No coordinates saved. Run setup first.", "Error", 16)
         return
     }
     bongohwnd := WinExist("ahk_exe " exeName)
     if !bongohwnd {
-        MsgBox("Bongo Cat не е намерен!", "Грешка", 16)
+        MsgBox("Bongo Cat not found!", "Error", 16)
         return
     }
 
+    ; Recalculate in case chestOffset changed since last setup
+    skinX := catCenterX - chestOffset
+    skinY := catCenterY
+    cosX  := catCenterX + chestOffset
+    cosY  := catCenterY
+
     now      := A_TickCount
     DoClick(skinX, skinY, bongohwnd)
-    skinNext := now + claimOffset
+    skinNext := now + claimOffset          ; Schedule next skin claim
     Sleep(300)
     DoClick(cosX, cosY, bongohwnd)
-    cosNext  := skinNext + 1000
+    cosNext  := skinNext + 1000            ; Cosmetic is offset by 1 second to avoid overlap
 
+    ; Persist timestamps so they survive a script restart
     IniWrite(skinNext, iniFile, "Timestamps", "SkinNext")
     IniWrite(cosNext,  iniFile, "Timestamps", "CosNext")
 
-    ToolTip("Claimed! Следващ: " MsToMMSS(skinNext - A_TickCount))
+    ToolTip("Claimed! Next in: " MsToMMSS(skinNext - A_TickCount))
     Sleep(2000)
     ToolTip()
 }
 
+; Clean shutdown — stop all timers and exit
 QuitScript(*) {
     SetTimer(AutoClaim, 0)
     SetTimer(UpdateGui, 0)
@@ -506,7 +648,11 @@ QuitScript(*) {
 }
 
 ; -------------------------------------------------------
-;  Block F13-F23
+;  BLOCK F13-F23
+;  These keys are used as the keystroke payload for both
+;  Spam and Realistic Typing. Blocking them here ensures
+;  they don't accidentally trigger shortcuts or actions
+;  in any application while the script is running.
 ; -------------------------------------------------------
 F13:: return
 F14:: return
@@ -521,7 +667,16 @@ F22:: return
 F23:: return
 
 ; -------------------------------------------------------
-;  Spam / Typing timers
+;  DOTYPINGRHYTHM
+;  The Realistic Typing timer callback.
+;  Called repeatedly by SetTimer while `clicking` is true.
+;
+;  Pattern:
+;    1. Skip if user is active (userIdle = false)
+;    2. Pick a random burst length
+;    3. Send that many F13 keypresses with random delays between them
+;       (occasionally inserts a longer "hesitation" pause)
+;    4. Wait a random pause before the next burst
 ; -------------------------------------------------------
 DoTypingRhythm() {
     global clicking, userIdle, burstMin, burstMax, fastDelayMin, fastDelayMax, pauseMin, pauseMax
@@ -530,26 +685,38 @@ DoTypingRhythm() {
     burstLen := Random(burstMin, burstMax)
     Loop burstLen {
         if (!clicking || !userIdle)
-            return
+            return  ; Stop mid-burst if user becomes active
         SendF13()
+        ; 1-in-5 chance of a longer "hesitation" pause between keystrokes
         if (Random(1, 5) = 1)
             Sleep(Random(150, 300))
         else
             Sleep(Random(fastDelayMin, fastDelayMax))
     }
-    Sleep(Random(pauseMin, pauseMax))
+    Sleep(Random(pauseMin, pauseMax))  ; Pause between bursts
 }
 
+; -------------------------------------------------------
+;  DOSPAM
+;  The Spam timer callback.
+;  Runs in a tight while-loop sending F13–F23 in batches.
+;  Pauses briefly if a chest claim is in progress (claiming = true)
+;  to avoid the two operations conflicting.
+;
+;  WARNING: This sends ~11 keystrokes every 2ms and will
+;  significantly load your CPU. Not suitable for use while
+;  actively using the computer.
+; -------------------------------------------------------
 DoSpam() {
     global spamming, claiming
     while spamming {
         if claiming {
-            Sleep(20)
+            Sleep(20)   ; Wait for DoClick to finish before continuing
             continue
         }
         SendMode("Event")
         loop 11 {
-            SendEvent("{F" (12 + A_Index) " down}")
+            SendEvent("{F" (12 + A_Index) " down}")  ; F13 through F23
             Sleep(1)
             SendEvent("{F" (12 + A_Index) " up}")
             Sleep(1)
@@ -558,11 +725,33 @@ DoSpam() {
 }
 
 ; -------------------------------------------------------
-;  Setup — слушай кликове чрез hook
+;  SETUP — LOW-LEVEL MOUSE HOOK
+;
+;  Bongo Cat is a DirectX overlay with click-through enabled,
+;  meaning normal AHK ~LButton hooks don't fire when you click
+;  on it — the click passes through to whatever is behind it.
+;
+;  To detect clicks on the overlay during setup, we use a
+;  Windows low-level mouse hook (WH_MOUSE_LL, id=14) via DllCall.
+;  This intercepts all mouse events system-wide at the OS level,
+;  before Windows even processes them.
+;
+;  IMPORTANT: This only works if the script and Bongo Cat are
+;  running at the same privilege level. If Bongo Cat is running
+;  as Administrator, this script must also run as Administrator.
+;  The reverse is also true — do NOT run Bongo Cat as admin
+;  if you can avoid it.
+;
+;  Flow:
+;    StartSetup()         → InstallSetupHook()
+;    User clicks anywhere → SetupMouseProc fires (on OS thread)
+;                         → schedules SetupPoll() via SetTimer
+;    SetupPoll()          → reads mouse position, records coordinates
+;                         → after step 2, UninstallSetupHook()
 ; -------------------------------------------------------
 SetupPoll() {
-    global setupStep, skinX, skinY, cosX, cosY, iniFile, claimOffset
-    global skinNext, cosNext, bongohwnd
+    global setupStep, catCenterX, catCenterY, skinX, skinY, cosX, cosY
+    global iniFile, claimOffset, skinNext, cosNext, bongohwnd, chestOffset
 
     if (setupStep = 0) {
         SetTimer(SetupPoll, 0)
@@ -573,26 +762,24 @@ SetupPoll() {
     MouseGetPos(&mx, &my)
 
     if (setupStep = 1) {
-        skinX     := mx
-        skinY     := my
-        setupStep := 2
-        ToolTip("SETUP | Стъпка 2/2: Кликни върху COSMETIC chest-а")
-        return
-    }
+        ; Single click on cat center — derive both chest positions from offset
+        catCenterX := mx
+        catCenterY := my
+        skinX      := catCenterX - chestOffset
+        skinY      := catCenterY
+        cosX       := catCenterX + chestOffset
+        cosY       := catCenterY
 
-    if (setupStep = 2) {
-        cosX      := mx
-        cosY      := my
         setupStep := 0
         SetTimer(SetupPoll, 0)
         UninstallSetupHook()
         ToolTip("")
 
-        IniWrite(skinX, iniFile, "Coords", "SkinX")
-        IniWrite(skinY, iniFile, "Coords", "SkinY")
-        IniWrite(cosX,  iniFile, "Coords", "CosX")
-        IniWrite(cosY,  iniFile, "Coords", "CosY")
+        ; Save center coords to .ini (chests are always derived, never stored directly)
+        IniWrite(catCenterX, iniFile, "Coords", "CatCenterX")
+        IniWrite(catCenterY, iniFile, "Coords", "CatCenterY")
 
+        ; Immediately claim both chests and record timestamps
         Sleep(200)
         now      := A_TickCount
         DoClick(skinX, skinY, bongohwnd)
@@ -604,7 +791,7 @@ SetupPoll() {
         IniWrite(skinNext, iniFile, "Timestamps", "SkinNext")
         IniWrite(cosNext,  iniFile, "Timestamps", "CosNext")
 
-        ToolTip("Setup завършен!")
+        ToolTip("Setup complete!")
         Sleep(2000)
         ToolTip()
 
@@ -615,19 +802,20 @@ SetupPoll() {
     }
 }
 
-; Hook за LButton — засича кликове навсякъде включително click-through
-setupMouseHook := 0
-setupMouseCB   := 0
+setupMouseHook := 0   ; Handle to the installed Windows hook (0 = not installed)
+setupMouseCB   := 0   ; Callback pointer — must be kept alive to prevent garbage collection
 
 InstallSetupHook() {
     global setupMouseHook, setupMouseCB
+    ; Create a C-compatible callback from the AHK function SetupMouseProc
+    ; "Fast" means it runs on the calling thread without an AHK thread switch
     setupMouseCB   := CallbackCreate(SetupMouseProc, "Fast")
     setupMouseHook := DllCall("SetWindowsHookEx",
-        "int",  14,
-        "ptr",  setupMouseCB,
-        "ptr",  0,
-        "uint", 0,
-        "ptr")
+        "int",  14,           ; WH_MOUSE_LL — low-level mouse hook
+        "ptr",  setupMouseCB, ; Our callback function
+        "ptr",  0,            ; hMod (0 = current process)
+        "uint", 0,            ; dwThreadId (0 = all threads)
+        "ptr")                ; Return type: hook handle
 }
 
 UninstallSetupHook() {
@@ -642,19 +830,36 @@ UninstallSetupHook() {
     }
 }
 
+; Called by Windows on every mouse event while the hook is installed.
+; Must return quickly — heavy work is dispatched via SetTimer.
 SetupMouseProc(nCode, wParam, lParam) {
     global setupStep
+    ; nCode >= 0 means we should process the event
+    ; wParam 0x0201 = WM_LBUTTONDOWN (left mouse button pressed)
     if (nCode >= 0 && wParam = 0x0201 && setupStep > 0)
-        SetTimer(SetupPoll, -1)
+        SetTimer(SetupPoll, -1)  ; -1 = run once immediately on AHK's thread
+    ; Always call the next hook in the chain — required by Windows hook protocol
     return DllCall("CallNextHookEx", "ptr", 0, "int", nCode, "ptr", wParam, "ptr", lParam, "ptr")
 }
 
 ; -------------------------------------------------------
-;  Overlay GUI
+;  OVERLAY GUI
+;
+;  Two small frameless always-on-top windows, one above each
+;  chest, showing a MM:SS countdown and "READY" in green when
+;  the chest is claimable.
+;
+;  Window flags used:
+;    -Caption    = no title bar
+;    +ToolWindow = smaller taskbar presence
+;    +E0x20      = WS_EX_TRANSPARENT (click-through)
+;
+;  WinSetTransparent(210, ...) = ~82% opacity (0=invisible, 255=solid)
 ; -------------------------------------------------------
 CreateOverlayGuis() {
     global skinGui, cosGui
 
+    ; Destroy existing windows if re-running setup
     if IsObject(skinGui)
         skinGui.Destroy()
     if IsObject(cosGui)
@@ -679,6 +884,7 @@ ShowOverlayGuis() {
     global skinGui, cosGui, skinX, skinY, cosX, cosY, guiOffsetY, guiVisible
     if (!IsObject(skinGui) || !IsObject(cosGui))
         return
+    ; Position each window centred horizontally above its chest (window is 110px wide)
     skinGui.Show("x" (skinX - 55) " y" (skinY - guiOffsetY) " NoActivate")
     cosGui.Show("x" (cosX - 55) " y" (cosY - guiOffsetY) " NoActivate")
     guiVisible := true
@@ -693,6 +899,7 @@ HideOverlayGuis() {
     guiVisible := false
 }
 
+; Called every second by SetTimer to refresh the countdown text
 UpdateGui() {
     global skinGui, cosGui, skinNext, cosNext, guiVisible
     if (!guiVisible || !IsObject(skinGui) || !IsObject(cosGui))
@@ -702,7 +909,7 @@ UpdateGui() {
     skinMs := skinNext - now
     if (skinMs <= 0) {
         skinGui["SkinTimer"].Text := "READY"
-        skinGui["SkinTimer"].SetFont("cLime")
+        skinGui["SkinTimer"].SetFont("cLime")   ; Green when claimable
     } else {
         skinGui["SkinTimer"].Text := MsToMMSS(skinMs)
         skinGui["SkinTimer"].SetFont("cWhite")
@@ -719,25 +926,35 @@ UpdateGui() {
 }
 
 ; -------------------------------------------------------
-;  Auto claim
+;  AUTOCLAIM
+;  Called every second by SetTimer.
+;  Checks whether either chest's timestamp has elapsed
+;  and claims it if so, then reschedules for next time.
 ; -------------------------------------------------------
 AutoClaim() {
     global skinX, skinY, cosX, cosY, bongohwnd, exeName
     global skinNext, cosNext, claimOffset, iniFile
 
-    if (skinX = 0)
-        return
+    if (catCenterX = 0)
+        return  ; Setup hasn't been run yet
+
     bongohwnd := WinExist("ahk_exe " exeName)
     if !bongohwnd
-        return
+        return  ; Bongo Cat isn't running
+
+    ; Always recalculate from center — picks up any chestOffset changes from Settings
+    skinX := catCenterX - chestOffset
+    skinY := catCenterY
+    cosX  := catCenterX + chestOffset
+    cosY  := catCenterY
 
     now := A_TickCount
 
     if (skinNext > 0 && now >= skinNext) {
         DoClick(skinX, skinY, bongohwnd)
-        skinNext := now + claimOffset
+        skinNext := now + claimOffset            ; Schedule next claim
         IniWrite(skinNext, iniFile, "Timestamps", "SkinNext")
-        Sleep(300)
+        Sleep(300)  ; Small gap between the two chest clicks
     }
 
     if (cosNext > 0 && now >= cosNext) {
@@ -748,41 +965,58 @@ AutoClaim() {
 }
 
 ; -------------------------------------------------------
-;  DoClick
+;  DOCLICK
+;  Moves the mouse to (x, y), clicks clickCount times,
+;  and returns the cursor to its original position.
+;
+;  BlockInput("MouseMove") freezes physical mouse movement
+;  during the operation so the cursor doesn't drift if the
+;  user is moving their mouse at the same time.
+;
+;  After clicking, WinActivate restores focus to whichever
+;  window was active before — preventing the click from
+;  stealing keyboard focus away from the user's work.
+;
+;  The `claiming` flag is set during the click so DoSpam
+;  knows to pause and not conflict with the input events.
 ; -------------------------------------------------------
 DoClick(x, y, hwnd) {
     global claiming, clickCount
-    CoordMode("Mouse", "Screen")
+    CoordMode("Mouse", "Screen")  ; Absolute screen coords (works across monitors)
 
-    activeHwnd := WinExist("A")
+    activeHwnd := WinExist("A")   ; Remember which window has focus right now
     claiming   := true
 
     MouseGetPos(&origX, &origY)
-    BlockInput("MouseMove")
-    MouseMove(x, y, 0)
-    Sleep(30)
+    BlockInput("MouseMove")       ; Freeze physical mouse movement
+    MouseMove(x, y, 0)            ; Teleport to target (speed=0, instant)
+    Sleep(30)                     ; Give the overlay time to register the hover
     Loop clickCount {
         SendEvent("{LButton down}")
-        Sleep(60)
+        Sleep(60)                 ; Hold duration — needs to be long enough for the overlay to register
         SendEvent("{LButton up}")
-        Sleep(30)
+        Sleep(30)                 ; Gap between repeated clicks
     }
-    MouseMove(origX, origY, 0)
-    BlockInput("MouseMoveOff")
+    MouseMove(origX, origY, 0)    ; Return cursor to original position
+    BlockInput("MouseMoveOff")    ; Unfreeze physical mouse
 
     claiming := false
 
+    ; Restore focus to the previously active window (if it wasn't Bongo Cat itself)
     if (activeHwnd && activeHwnd != hwnd)
         WinActivate("ahk_id " activeHwnd)
 }
 
 ; -------------------------------------------------------
-;  Helpers
+;  HELPERS
 ; -------------------------------------------------------
+
+; Converts a millisecond duration to MM:SS display string
+; e.g. 125000ms → "02:05"
 MsToMMSS(ms) {
     if (ms <= 0)
         return "00:00"
-    ms   := Integer(Round(ms))
+    ms   := Integer(Round(ms))  ; Avoid float errors from A_TickCount arithmetic
     secs := ms // 1000
     mins := secs // 60
     secs := Mod(secs, 60)

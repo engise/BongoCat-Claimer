@@ -36,15 +36,16 @@ A `BongoCat.ini` config file will be created automatically in the same folder th
 
 ## First-time Setup
 
-Before the auto-claimer works, you need to tell the script where your chests are on screen.
+Before the auto-claimer works, you need to tell the script where your cat is on screen. This is a **single click** — the script figures out the chest positions automatically.
 
 1. Make sure Bongo Cat is running and **both chests are visible** (the `1000` counters are shown)
 2. Press **F10** to enter setup mode
-3. Click on the **Skin chest** (left chest)
-4. Click on the **Cosmetic chest** (right chest)
-5. The script will immediately claim both and start the 30.5-minute timer
+3. Click somewhere on the **upper body or forehead of your cat** — roughly the center horizontally
+4. The script calculates the left and right chest positions using a fixed offset (82px by default), claims both immediately, and starts the 30.5-minute timer
 
-> ℹ️ The chests can appear anywhere on screen and on any monitor. If you move your cat, just press F10 and redo the setup — it only takes a few seconds.
+> ℹ️ The two chests always appear at a fixed distance on either side of the cat. If your cat moves, just press F10 and click again — it takes one second.
+
+> ℹ️ If the script misses the chests (slightly off on your screen), you can adjust the **Chest offset from center** value in Settings (F5) without re-running setup.
 
 ---
 
@@ -67,9 +68,9 @@ All hotkeys except F5 are fully rebindable from the Settings screen.
 ## Features
 
 ### Auto Chest Claimer
-Checks every second and automatically clicks both chests when the timer is up. The script moves your mouse to the chest, clicks it, and immediately returns your cursor to where it was — the whole thing takes under 200ms. Focus is restored to whatever window you were using.
+Checks every second and automatically clicks both chests when the timer is up. The script moves your mouse to each chest, clicks it, and immediately returns your cursor to where it was — the whole thing takes under 200ms. Focus is restored to whatever window you were using.
 
-The claim interval defaults to **30.5 minutes** (slightly over 30 to account for any timer drift). Both chests have independent timers with a ~1 second offset between them.
+The claim interval defaults to **30.5 minutes** (slightly over 30 to account for any timer drift in Bongo Cat). Both chests have independent timers with a ~1 second offset between them.
 
 ### Overlay GUI (F9)
 Two small dark overlay windows appear just above each chest showing a live countdown timer. They turn green and show **READY** when a chest is available. Toggle them with F9.
@@ -97,6 +98,7 @@ Press F5 to open the settings window. Changes apply immediately when you click O
 |---------|---------|-------------|
 | Claim interval (minutes) | `30.5` | How long to wait between auto-claims |
 | Clicks per chest | `3` | How many times to click each chest (more = more reliable) |
+| Chest offset from center (px) | `82` | Horizontal distance in pixels from the cat's center to each chest. Increase or decrease this if the script is missing the chests on your screen. |
 
 ### Realistic Typing
 | Setting | Default | Description |
@@ -131,8 +133,8 @@ The script is designed to minimise disruption: your cursor is returned to exactl
 
 - The script generates no exploits and uses no external tools — it just simulates mouse clicks and keystrokes
 - Detection status is believed to be **Undetected**
-- Settings survive script restarts — timestamps and coordinates are saved in `BongoCat.ini`
-- If you move your cat widget on screen, press **F10** to redo the setup
+- Settings survive script restarts — timestamps and the cat's position are saved in `BongoCat.ini`
+- If you move your cat widget on screen, press **F10** and click the cat once to update the position
 - UI elements on websites or applications located behind your cat widget may occasionally receive clicks — this is a Windows responsiveness side effect, not a script bug
 
 ---
