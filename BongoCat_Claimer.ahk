@@ -5,9 +5,9 @@
 ;  PURPOSE:
 ;    Automates three things for the Bongo Cat Steam overlay:
 ;      1. Auto-claims both chests every ~30.5 minutes
-;      2. Realistic Typing ï¿½ generates keystrokes in a human-like
+;      2. Realistic Typing — generates keystrokes in a human-like
 ;         burst/pause pattern to accumulate points passively
-;      3. Spam ï¿½ sends keystrokes as fast as possible for maximum
+;      3. Spam — sends keystrokes as fast as possible for maximum
 ;         point generation when away from the computer
 ;
 ;  FIXED HOTKEY:
@@ -37,7 +37,7 @@
 ;  To release a new version: bump this string and push
 ;  version.txt with the same value to the repo.
 ; -------------------------------------------------------
-currentVersion := "1.1.0"
+currentVersion := "1.0.0"
 githubRawBase  := "https://raw.githubusercontent.com/engise/BongoCat-Claimer/main/"
 
 ; -------------------------------------------------------
@@ -75,7 +75,7 @@ clickCount    := 3       ; How many times to click each chest per claim attempt.
                          ; More clicks = more reliable on laggy systems.
 chestOffset   := 82      ; Horizontal pixel distance from cat center to each chest.
                          ; Left chest = centerX - chestOffset, Right chest = centerX + chestOffset.
-                         ; Measured at default Bongo Cat scale ï¿½ adjust in Settings if needed.
+                         ; Measured at default Bongo Cat scale — adjust in Settings if needed.
 
 ; --- Chest state ---
 catCenterX    := 0       ; Screen X coordinate of the cat center (clicked during setup)
@@ -89,9 +89,9 @@ skinNext      := 0       ; A_TickCount timestamp when Skin chest can next be cla
 cosNext       := 0       ; A_TickCount timestamp when Cosmetic chest can next be claimed
 setupStep      := 0       ; Tracks setup wizard progress: 0=idle, 1=waiting for cat center click
 bongohwnd      := 0       ; Window handle of BongoCat.exe (used for focus restoration after clicks)
-claiming       := false   ; True while DoClick is running ï¿½ used to pause Spam during a claim
-isInitialSetup := false   ; True when .ini doesn't exist yet ï¿½ initial setup claims chests immediately.
-                           ; False on subsequent setups ï¿½ only updates coordinates, timers unchanged.
+claiming       := false   ; True while DoClick is running — used to pause Spam during a claim
+isInitialSetup := false   ; True when .ini doesn't exist yet — initial setup claims chests immediately.
+                           ; False on subsequent setups — only updates coordinates, timers unchanged.
 
 ; --- Overlay GUI state ---
 guiVisible    := false   ; Whether the countdown overlay windows are currently shown
@@ -109,7 +109,7 @@ hkQuit        := "F7"
 ; -------------------------------------------------------
 ;  STARTUP
 ;  If this file has "_new" in its name, it was downloaded
-;  as an update ï¿½ run SelfUpdate() to replace the old file.
+;  as an update — run SelfUpdate() to replace the old file.
 ;  Otherwise do the normal startup sequence.
 ; -------------------------------------------------------
 if InStr(A_ScriptFullPath, "_new.ahk") {
@@ -136,7 +136,7 @@ LoadConfig() {
 
     if !FileExist(iniFile) {
         WriteDefaultIni()
-        isInitialSetup := true   ; Flag for StartSetup ï¿½ first run needs to claim chests
+        isInitialSetup := true   ; Flag for StartSetup — first run needs to claim chests
         ToolTip("No config found. Press F10 to set up chest coordinates.")
         Sleep(3000)
         ToolTip()
@@ -159,7 +159,7 @@ LoadConfig() {
     clickCount   := Integer(IniRead(iniFile, "Typing", "ClickCount",   3))
     chestOffset  := Integer(IniRead(iniFile, "Typing", "ChestOffset",  82))
 
-    ; Hotkeys section ï¿½ read saved bindings, fall back to defaults if missing
+    ; Hotkeys section — read saved bindings, fall back to defaults if missing
     hkTyping    := IniRead(iniFile, "Hotkeys", "Typing",    "F6")
     hkSpam      := IniRead(iniFile, "Hotkeys", "Spam",      "F8")
     hkOverlay   := IniRead(iniFile, "Hotkeys", "Overlay",   "F9")
@@ -167,7 +167,7 @@ LoadConfig() {
     hkClaim     := IniRead(iniFile, "Hotkeys", "Claim",     "F12")
     hkQuit      := IniRead(iniFile, "Hotkeys", "Quit",      "F7")
 
-    ; Coords section ï¿½ center of the cat, chests are derived from chestOffset
+    ; Coords section — center of the cat, chests are derived from chestOffset
     catCenterX := Integer(IniRead(iniFile, "Coords", "CatCenterX", 0))
     catCenterY := Integer(IniRead(iniFile, "Coords", "CatCenterY", 0))
 
@@ -177,7 +177,7 @@ LoadConfig() {
     cosX  := catCenterX + chestOffset
     cosY  := catCenterY
 
-    ; Timestamps section ï¿½ A_TickCount values of next scheduled claim
+    ; Timestamps section — A_TickCount values of next scheduled claim
     ; These persist across restarts so the timer survives closing the script
     skinNext := Integer(IniRead(iniFile, "Timestamps", "SkinNext", 0))
     cosNext  := Integer(IniRead(iniFile, "Timestamps", "CosNext",  0))
@@ -189,7 +189,7 @@ LoadConfig() {
         return
     }
 
-    ; All good ï¿½ start the auto-claim checker, build the overlay, start the GUI update loop
+    ; All good — start the auto-claim checker, build the overlay, start the GUI update loop
     SetTimer(AutoClaim, 1000)   ; Check every second whether a chest is ready
     CreateOverlayGuis()
     ShowOverlayGuis()
@@ -249,14 +249,14 @@ CheckForUpdate() {
         http.Send()
         latestVersion := Trim(http.ResponseText)
     } catch {
-        return  ; No internet or GitHub unreachable ï¿½ silently skip
+        return  ; No internet or GitHub unreachable — silently skip
     }
 
     ; Validate response looks like a version string
     if !RegExMatch(latestVersion, "^\d+\.\d+\.\d+$")
-        return  ; Unexpected response ï¿½ skip
+        return  ; Unexpected response — skip
 
-    ; Compare versions ï¿½ only prompt if remote is strictly newer
+    ; Compare versions — only prompt if remote is strictly newer
     if !IsNewerVersion(currentVersion, latestVersion)
         return
 
@@ -286,7 +286,7 @@ CheckForUpdate() {
         return
     }
 
-    ; Launch the new version ï¿½ it will handle replacing this file
+    ; Launch the new version — it will handle replacing this file
     Run('"' A_AhkPath '" "' newPath '"')
     ExitApp()
 }
@@ -355,7 +355,7 @@ RegisterHotkeys() {
 
 UnregisterHotkeys() {
     global hkTyping, hkSpam, hkOverlay, hkSetup, hkClaim, hkQuit
-    ; try/catch each one individually ï¿½ if a binding doesn't exist yet it won't crash
+    ; try/catch each one individually — if a binding doesn't exist yet it won't crash
     try Hotkey(hkTyping,  "Off")
     try Hotkey(hkSpam,    "Off")
     try Hotkey(hkOverlay, "Off")
@@ -365,7 +365,7 @@ UnregisterHotkeys() {
 }
 
 ; -------------------------------------------------------
-;  F5 ï¿½ SETTINGS (fixed hotkey, cannot be rebound)
+;  F5 — SETTINGS (fixed hotkey, cannot be rebound)
 ;
 ;  Opens a native Windows-style settings dialog with four
 ;  sections: Claimer, Realistic Typing, Spam, and Hotkeys.
@@ -379,12 +379,12 @@ OpenSettings() {
     global pauseMin, pauseMax, spamInterval
     global hkTyping, hkSpam, hkOverlay, hkSetup, hkClaim, hkQuit
 
-    sg := Gui("+AlwaysOnTop", "Bongo Cat ï¿½ Settings")
+    sg := Gui("+AlwaysOnTop", "Bongo Cat — Settings")
     sg.SetFont("s9", "Segoe UI")
     sg.MarginX := 12
     sg.MarginY := 10
 
-    ; Layout constants ï¿½ adjust these to change column widths
+    ; Layout constants — adjust these to change column widths
     lw  := 190          ; Label column width (px)
     ew  := 90           ; Edit field width (px)
     gw  := lw + ew + 30 ; GroupBox width (auto-calculated)
@@ -607,7 +607,7 @@ SaveSettingsFromMap(sg, hkMap, *) {
 ;    - Any new activity sets userIdle = false immediately, pausing it.
 ;
 ;  The ~* prefix means the hotkey fires but the key still passes through
-;  to whatever application is active ï¿½ so this is purely passive monitoring.
+;  to whatever application is active — so this is purely passive monitoring.
 ; -------------------------------------------------------
 ~*LButton:: SetTimer(ResumeAfterIdle, -idleTimeout)
 ~*RButton:: SetTimer(ResumeAfterIdle, -idleTimeout)
@@ -623,7 +623,7 @@ WM_MOUSEMOVE(wParam, lParam, msg, hwnd2) {
 
 ResumeAfterIdle() {
     global userIdle
-    userIdle := true  ; No activity for idleTimeout ms ï¿½ safe to resume typing
+    userIdle := true  ; No activity for idleTimeout ms — safe to resume typing
 }
 
 ; -------------------------------------------------------
@@ -688,7 +688,7 @@ ToggleSpam(*) {
     userIdle := true
     if spamming {
         SetTimer(DoSpam, spamInterval)
-        ; No tooltip on enable ï¿½ intentionally silent to avoid interrupting work
+        ; No tooltip on enable — intentionally silent to avoid interrupting work
     } else {
         SetTimer(DoSpam, 0)
         ToolTip("Bongo Cat: OFF")
@@ -727,9 +727,9 @@ StartSetup(*) {
     setupStep := 1
 
     if isInitialSetup
-        ToolTip("SETUP (first run): Click the CENTER of your cat ï¿½ chests will be claimed immediately")
+        ToolTip("SETUP (first run): Click the CENTER of your cat — chests will be claimed immediately")
     else
-        ToolTip("SETUP: Click the CENTER of your cat ï¿½ timers will NOT be reset")
+        ToolTip("SETUP: Click the CENTER of your cat — timers will NOT be reset")
 
     InstallSetupHook()
 }
@@ -771,7 +771,7 @@ ManualClaim(*) {
     ToolTip()
 }
 
-; Clean shutdown ï¿½ stop all timers and exit
+; Clean shutdown — stop all timers and exit
 QuitScript(*) {
     SetTimer(AutoClaim, 0)
     SetTimer(UpdateGui, 0)
@@ -836,7 +836,7 @@ DoTypingRhythm() {
 ; -------------------------------------------------------
 ;  DOSPAM
 ;  The Spam timer callback.
-;  Runs in a tight while-loop sending F13ï¿½F23 in batches.
+;  Runs in a tight while-loop sending F13–F23 in batches.
 ;  Pauses briefly if a chest claim is in progress (claiming = true)
 ;  to avoid the two operations conflicting.
 ;
@@ -862,11 +862,11 @@ DoSpam() {
 }
 
 ; -------------------------------------------------------
-;  SETUP ï¿½ LOW-LEVEL MOUSE HOOK
+;  SETUP — LOW-LEVEL MOUSE HOOK
 ;
 ;  Bongo Cat is a DirectX overlay with click-through enabled,
 ;  meaning normal AHK ~LButton hooks don't fire when you click
-;  on it ï¿½ the click passes through to whatever is behind it.
+;  on it — the click passes through to whatever is behind it.
 ;
 ;  To detect clicks on the overlay during setup, we use a
 ;  Windows low-level mouse hook (WH_MOUSE_LL, id=14) via DllCall.
@@ -876,7 +876,7 @@ DoSpam() {
 ;  IMPORTANT: This only works if the script and Bongo Cat are
 ;  running at the same privilege level. If Bongo Cat is running
 ;  as Administrator, this script must also run as Administrator.
-;  The reverse is also true ï¿½ do NOT run Bongo Cat as admin
+;  The reverse is also true — do NOT run Bongo Cat as admin
 ;  if you can avoid it.
 ;
 ;  Flow:
@@ -918,7 +918,7 @@ SetupPoll() {
         IniWrite(catCenterY, iniFile, "Coords", "CatCenterY")
 
         if isInitialSetup {
-            ; First run ï¿½ claim chests immediately and start all timers
+            ; First run — claim chests immediately and start all timers
             isInitialSetup := false
 
             Sleep(200)
@@ -941,7 +941,7 @@ SetupPoll() {
             ShowOverlayGuis()
             SetTimer(UpdateGui, 1000)
         } else {
-            ; Subsequent run ï¿½ only update position, leave timers completely untouched
+            ; Subsequent run — only update position, leave timers completely untouched
             ToolTip("Position updated. Timers unchanged.")
             Sleep(2000)
             ToolTip()
@@ -954,7 +954,7 @@ SetupPoll() {
 }
 
 setupMouseHook := 0   ; Handle to the installed Windows hook (0 = not installed)
-setupMouseCB   := 0   ; Callback pointer ï¿½ must be kept alive to prevent garbage collection
+setupMouseCB   := 0   ; Callback pointer — must be kept alive to prevent garbage collection
 
 InstallSetupHook() {
     global setupMouseHook, setupMouseCB
@@ -962,7 +962,7 @@ InstallSetupHook() {
     ; "Fast" means it runs on the calling thread without an AHK thread switch
     setupMouseCB   := CallbackCreate(SetupMouseProc, "Fast")
     setupMouseHook := DllCall("SetWindowsHookEx",
-        "int",  14,           ; WH_MOUSE_LL ï¿½ low-level mouse hook
+        "int",  14,           ; WH_MOUSE_LL — low-level mouse hook
         "ptr",  setupMouseCB, ; Our callback function
         "ptr",  0,            ; hMod (0 = current process)
         "uint", 0,            ; dwThreadId (0 = all threads)
@@ -982,14 +982,14 @@ UninstallSetupHook() {
 }
 
 ; Called by Windows on every mouse event while the hook is installed.
-; Must return quickly ï¿½ heavy work is dispatched via SetTimer.
+; Must return quickly — heavy work is dispatched via SetTimer.
 SetupMouseProc(nCode, wParam, lParam) {
     global setupStep
     ; nCode >= 0 means we should process the event
     ; wParam 0x0201 = WM_LBUTTONDOWN (left mouse button pressed)
     if (nCode >= 0 && wParam = 0x0201 && setupStep > 0)
         SetTimer(SetupPoll, -1)  ; -1 = run once immediately on AHK's thread
-    ; Always call the next hook in the chain ï¿½ required by Windows hook protocol
+    ; Always call the next hook in the chain — required by Windows hook protocol
     return DllCall("CallNextHookEx", "ptr", 0, "int", nCode, "ptr", wParam, "ptr", lParam, "ptr")
 }
 
@@ -1093,7 +1093,7 @@ AutoClaim() {
     if !bongohwnd
         return  ; Bongo Cat isn't running
 
-    ; Always recalculate from center ï¿½ picks up any chestOffset changes from Settings
+    ; Always recalculate from center — picks up any chestOffset changes from Settings
     skinX := catCenterX - chestOffset
     skinY := catCenterY
     cosX  := catCenterX + chestOffset
@@ -1125,7 +1125,7 @@ AutoClaim() {
 ;  user is moving their mouse at the same time.
 ;
 ;  After clicking, WinActivate restores focus to whichever
-;  window was active before ï¿½ preventing the click from
+;  window was active before — preventing the click from
 ;  stealing keyboard focus away from the user's work.
 ;
 ;  The `claiming` flag is set during the click so DoSpam
@@ -1144,7 +1144,7 @@ DoClick(x, y, hwnd) {
     Sleep(30)                     ; Give the overlay time to register the hover
     Loop clickCount {
         SendEvent("{LButton down}")
-        Sleep(60)                 ; Hold duration ï¿½ needs to be long enough for the overlay to register
+        Sleep(60)                 ; Hold duration — needs to be long enough for the overlay to register
         SendEvent("{LButton up}")
         Sleep(30)                 ; Gap between repeated clicks
     }
