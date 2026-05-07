@@ -1154,8 +1154,9 @@ DoClick(x, y, hwnd) {
     claiming := false
 
     ; Restore focus to the previously active window (if it wasn't Bongo Cat itself)
-    if (activeHwnd && activeHwnd != hwnd)
-        WinActivate("ahk_id " activeHwnd)
+    if (activeHwnd && activeHwnd != hwnd) {
+        try WinActivate("ahk_id " activeHwnd)
+    }
 }
 
 ; -------------------------------------------------------
