@@ -37,7 +37,7 @@
 ;  To release a new version: bump this string and push
 ;  version.txt with the same value to the repo.
 ; -------------------------------------------------------
-currentVersion := "1.2.1"
+currentVersion := "1.2.2"
 githubRawBase  := "https://raw.githubusercontent.com/engise/BongoCat-Claimer/main/"
 
 ; -------------------------------------------------------
@@ -497,23 +497,14 @@ StartCapture(btn, key, hkMap, *) {
     origText  := btn.Text
     btn.Text  := "[ press key combo... ]"
 
-    ; List of modifier keys to ignore (we only want the final non-modifier key)
-    modifiers := ["LShift", "RShift", "LCtrl", "RCtrl", "LAlt", "RAlt", "LWin", "RWin"]
-
     ; InputHook without L1 — wait for a non-modifier key
     ; This allows Shift/Ctrl/Alt/Win to be held before the final key
     ih := InputHook("B T5")  ; B = block, T5 = 5 second timeout
     ih.KeyOpt("{All}", "E")   ; E = end on key (but we filter modifiers below)
     
     ; Ignore modifier-only presses — keep waiting
-    ih.OnEnd := (hook) => {
-        for mod in modifiers {
-            if (hook.EndKey = mod) {
-                hook.Start()  ; Restart — keep waiting
-                return
-            }
-        }
-    }
+    ; Use a simple string check instead of array iteration
+    ih.OnEnd := OnEndCallback
     
     ih.Start()
     ih.Wait()
@@ -551,6 +542,15 @@ StartCapture(btn, key, hkMap, *) {
     }
 
     capturing := false
+    
+    ; Nested callback function - checks if EndKey is a modifier
+    OnEndCallback(hook) {
+        k := hook.EndKey
+        if (k = "LShift" || k = "RShift" || k = "LCtrl" || k = "RCtrl" 
+         || k = "LAlt" || k = "RAlt" || k = "LWin" || k = "RWin") {
+            hook.Start()  ; Restart — keep waiting for non-modifier
+        }
+    }
 }
 
 ; -------------------------------------------------------
