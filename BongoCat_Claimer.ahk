@@ -37,7 +37,7 @@
 ;  To release a new version: bump this string and push
 ;  version.txt with the same value to the repo.
 ; -------------------------------------------------------
-currentVersion := "1.2.3"
+currentVersion := "1.2.4"
 githubRawBase  := "https://raw.githubusercontent.com/engise/BongoCat-Claimer/main/"
 
 ; -------------------------------------------------------
@@ -357,23 +357,72 @@ IsNewerVersion(current, latest) {
 ; -------------------------------------------------------
 RegisterHotkeys() {
     global hkTyping, hkSpam, hkOverlay, hkSetup, hkClaim, hkQuit
-    Hotkey(hkTyping,  ToggleTyping)
-    Hotkey(hkSpam,    ToggleSpam)
-    Hotkey(hkOverlay, ToggleOverlay)
-    Hotkey(hkSetup,   StartSetup)
-    Hotkey(hkClaim,   ManualClaim)
-    Hotkey(hkQuit,    QuitScript)
+    
+    ; Wrap each in try/catch so one bad hotkey doesn't break all the others
+    try {
+        Hotkey(hkTyping, ToggleTyping)
+    } catch {
+        MsgBox("Failed to register hotkey: " hkTyping, "Hotkey Error", 0x10)
+    }
+    
+    try {
+        Hotkey(hkSpam, ToggleSpam)
+    } catch {
+        MsgBox("Failed to register hotkey: " hkSpam, "Hotkey Error", 0x10)
+    }
+    
+    try {
+        Hotkey(hkOverlay, ToggleOverlay)
+    } catch {
+        MsgBox("Failed to register hotkey: " hkOverlay, "Hotkey Error", 0x10)
+    }
+    
+    try {
+        Hotkey(hkSetup, StartSetup)
+    } catch {
+        MsgBox("Failed to register hotkey: " hkSetup, "Hotkey Error", 0x10)
+    }
+    
+    try {
+        Hotkey(hkClaim, ManualClaim)
+    } catch {
+        MsgBox("Failed to register hotkey: " hkClaim, "Hotkey Error", 0x10)
+    }
+    
+    try {
+        Hotkey(hkQuit, QuitScript)
+    } catch {
+        MsgBox("Failed to register hotkey: " hkQuit, "Hotkey Error", 0x10)
+    }
 }
 
 UnregisterHotkeys() {
     global hkTyping, hkSpam, hkOverlay, hkSetup, hkClaim, hkQuit
     ; try/catch each one individually — if a binding doesn't exist yet it won't crash
-    try Hotkey(hkTyping,  "Off")
-    try Hotkey(hkSpam,    "Off")
-    try Hotkey(hkOverlay, "Off")
-    try Hotkey(hkSetup,   "Off")
-    try Hotkey(hkClaim,   "Off")
-    try Hotkey(hkQuit,    "Off")
+    try {
+        Hotkey(hkTyping,  "Off")
+    } catch {
+    }
+    try {
+        Hotkey(hkSpam,    "Off")
+    } catch {
+    }
+    try {
+        Hotkey(hkOverlay, "Off")
+    } catch {
+    }
+    try {
+        Hotkey(hkSetup,   "Off")
+    } catch {
+    }
+    try {
+        Hotkey(hkClaim,   "Off")
+    } catch {
+    }
+    try {
+        Hotkey(hkQuit,    "Off")
+    } catch {
+    }
 }
 
 ; -------------------------------------------------------
@@ -623,6 +672,7 @@ SaveSettingsFromMap(sg, hkMap, *) {
     effectiveOffset := Round(chestOffset * catScale)
     skinX := catCenterX - effectiveOffset
     cosX  := catCenterX + effectiveOffset
+    ; Update hotkey variables with new bindings
     hkTyping     := hkMap["Typing"]
     hkSpam       := hkMap["Spam"]
     hkOverlay    := hkMap["Overlay"]
@@ -630,11 +680,25 @@ SaveSettingsFromMap(sg, hkMap, *) {
     hkClaim      := hkMap["Claim"]
     hkQuit       := hkMap["Quit"]
 
-    RegisterHotkeys()
+    ; Re-register with error handling
+    try {
+        RegisterHotkeys()
+    } catch as e {
+        MsgBox("Failed to register hotkeys: " e.Message "`n`nPlease restart the script.", "Error", 0x10)
+        return
+    }
 
     sg.Destroy()
-    ToolTip("Settings saved!")
-    Sleep(1500)
+    
+    ; Debug: verify settings were saved
+    debugMsg := "Settings saved!`n`nHotkeys:`n"
+    debugMsg .= "Typing: " hkMap["Typing"] " (saved as " IniRead(iniFile, "Hotkeys", "Typing", "?") ")`n"
+    debugMsg .= "Spam: " hkMap["Spam"] " (saved as " IniRead(iniFile, "Hotkeys", "Spam", "?") ")`n"
+    debugMsg .= "ChestOffset: " saved.ChestOffset " (saved as " IniRead(iniFile, "Typing", "ChestOffset", "?") ")`n"
+    debugMsg .= "CatScale: " saved.CatScale " (saved as " IniRead(iniFile, "Typing", "CatScale", "?") ")"
+    
+    ToolTip(debugMsg)
+    Sleep(3000)
     ToolTip()
 }
 
@@ -654,14 +718,19 @@ SaveSettingsFromMap(sg, hkMap, *) {
 ;  The ~* prefix means the hotkey fires but the key still passes through
 ;  to whatever application is active — so this is purely passive monitoring.
 ; -------------------------------------------------------
-~*LButton:: SetTimer(ResumeAfterIdle, -idleTimeout)
-~*RButton:: SetTimer(ResumeAfterIdle, -idleTimeout)
-~*MButton:: SetTimer(ResumeAfterIdle, -idleTimeout)
-~*$a::      SetTimer(ResumeAfterIdle, -idleTimeout)  ; Any 'a' keypress acts as a proxy for general keyboard activity
+~*LButton:: ResetIdleTimer()
+~*RButton:: ResetIdleTimer()
+~*MButton:: ResetIdleTimer()
+~*$a::      ResetIdleTimer()
+
+ResetIdleTimer() {
+    global idleTimeout
+    SetTimer(ResumeAfterIdle, -idleTimeout)
+}
 
 OnMessage(0x0200, WM_MOUSEMOVE)  ; Register WM_MOUSEMOVE message handler
 WM_MOUSEMOVE(wParam, lParam, msg, hwnd2) {
-    global userIdle
+    global userIdle, idleTimeout
     userIdle := false
     SetTimer(ResumeAfterIdle, -idleTimeout)  ; Restart the idle countdown
 }
@@ -1203,7 +1272,10 @@ DoClick(x, y, hwnd) {
 
     ; Restore focus to the previously active window (if it wasn't Bongo Cat itself)
     if (activeHwnd && activeHwnd != hwnd) {
-        try WinActivate("ahk_id " activeHwnd)
+        try {
+            WinActivate("ahk_id " activeHwnd)
+        } catch {
+        }
     }
 }
 
