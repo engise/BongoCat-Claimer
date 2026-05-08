@@ -37,7 +37,7 @@
 ;  To release a new version: bump this string and push
 ;  version.txt with the same value to the repo.
 ; -------------------------------------------------------
-currentVersion := "1.2.0"
+currentVersion := "1.2.1"
 githubRawBase  := "https://raw.githubusercontent.com/engise/BongoCat-Claimer/main/"
 
 ; -------------------------------------------------------
@@ -134,8 +134,9 @@ RegisterHotkeys()
 LoadConfig() {
     global iniFile, claimOffset, idleTimeout
     global burstMin, burstMax, fastDelayMin, fastDelayMax
-    global pauseMin, pauseMax, spamInterval
+    global pauseMin, pauseMax, spamInterval, clickCount, chestOffset, catScale
     global skinX, skinY, cosX, cosY, skinNext, cosNext
+    global catCenterX, catCenterY, isInitialSetup
 
     if !FileExist(iniFile) {
         WriteDefaultIni()
@@ -286,7 +287,11 @@ CheckForUpdate() {
         http.Send()
         if (http.Status != 200)
             throw Error("HTTP " http.Status)
-        FileOpen(newPath, "w").Write(http.ResponseText)
+        f := FileOpen(newPath, "w")
+        if !f
+            throw Error("Cannot write to " newPath)
+        f.Write(http.ResponseText)
+        f.Close()
     } catch as e {
         MsgBox("Update failed: " e.Message "`n`nPlease download manually from GitHub.", "Update Error", 0x10)
         return
@@ -492,13 +497,15 @@ StartCapture(btn, key, hkMap, *) {
     origText  := btn.Text
     btn.Text  := "[ press key combo... ]"
 
+    ; List of modifier keys to ignore (we only want the final non-modifier key)
+    modifiers := ["LShift", "RShift", "LCtrl", "RCtrl", "LAlt", "RAlt", "LWin", "RWin"]
+
     ; InputHook without L1 — wait for a non-modifier key
     ; This allows Shift/Ctrl/Alt/Win to be held before the final key
     ih := InputHook("B T5")  ; B = block, T5 = 5 second timeout
     ih.KeyOpt("{All}", "E")   ; E = end on key (but we filter modifiers below)
     
     ; Ignore modifier-only presses — keep waiting
-    modifiers := ["LShift", "RShift", "LCtrl", "RCtrl", "LAlt", "RAlt", "LWin", "RWin"]
     ih.OnEnd := (hook) => {
         for mod in modifiers {
             if (hook.EndKey = mod) {
@@ -556,8 +563,9 @@ StartCapture(btn, key, hkMap, *) {
 SaveSettingsFromMap(sg, hkMap, *) {
     global iniFile, claimOffset, idleTimeout
     global burstMin, burstMax, fastDelayMin, fastDelayMax
-    global pauseMin, pauseMax, spamInterval, clickCount
+    global pauseMin, pauseMax, spamInterval, clickCount, chestOffset, catScale
     global hkTyping, hkSpam, hkOverlay, hkSetup, hkClaim, hkQuit
+    global catCenterX, catCenterY, skinX, cosX
 
     saved := sg.Submit()  ; Reads all vName control values into an object
 
@@ -735,7 +743,7 @@ ToggleSpam(*) {
 
 ; Toggle the overlay countdown GUI
 ToggleOverlay(*) {
-    global guiVisible, skinX
+    global guiVisible, catCenterX
     if (catCenterX = 0) {
         ToolTip("No config. Run setup first.")
         Sleep(2000)
