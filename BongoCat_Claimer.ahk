@@ -5,9 +5,9 @@
 ;  PURPOSE:
 ;    Automates three things for the Bongo Cat Steam overlay:
 ;      1. Auto-claims both chests every ~30.5 minutes
-;      2. Realistic Typing � generates keystrokes in a human-like
+;      2. Realistic Typing — generates keystrokes in a human-like
 ;         burst/pause pattern to accumulate points passively
-;      3. Spam � sends keystrokes as fast as possible for maximum
+;      3. Spam — sends keystrokes as fast as possible for maximum
 ;         point generation when away from the computer
 ;
 ;  FIXED HOTKEY:
@@ -37,7 +37,7 @@
 ;  To release a new version: bump this string and push
 ;  version.txt with the same value to the repo.
 ; -------------------------------------------------------
-currentVersion := "1.1.2"
+currentVersion := "1.2.0"
 githubRawBase  := "https://raw.githubusercontent.com/engise/BongoCat-Claimer/main/"
 
 ; -------------------------------------------------------
@@ -75,7 +75,10 @@ clickCount    := 3       ; How many times to click each chest per claim attempt.
                          ; More clicks = more reliable on laggy systems.
 chestOffset   := 82      ; Horizontal pixel distance from cat center to each chest.
                          ; Left chest = centerX - chestOffset, Right chest = centerX + chestOffset.
-                         ; Measured at default Bongo Cat scale � adjust in Settings if needed.
+                         ; Measured at default Bongo Cat scale — adjust in Settings if needed.
+catScale      := 1.0     ; Bongo Cat scale multiplier (1.0 = default size).
+                         ; If you've scaled your cat in Bongo Cat settings (0.75x, 1.5x, etc.),
+                         ; set this to match. The chestOffset is multiplied by this value.
 
 ; --- Chest state ---
 catCenterX    := 0       ; Screen X coordinate of the cat center (clicked during setup)
@@ -89,9 +92,9 @@ skinNext      := 0       ; A_TickCount timestamp when Skin chest can next be cla
 cosNext       := 0       ; A_TickCount timestamp when Cosmetic chest can next be claimed
 setupStep      := 0       ; Tracks setup wizard progress: 0=idle, 1=waiting for cat center click
 bongohwnd      := 0       ; Window handle of BongoCat.exe (used for focus restoration after clicks)
-claiming       := false   ; True while DoClick is running � used to pause Spam during a claim
-isInitialSetup := false   ; True when .ini doesn't exist yet � initial setup claims chests immediately.
-                           ; False on subsequent setups � only updates coordinates, timers unchanged.
+claiming       := false   ; True while DoClick is running — used to pause Spam during a claim
+isInitialSetup := false   ; True when .ini doesn't exist yet — initial setup claims chests immediately.
+                           ; False on subsequent setups — only updates coordinates, timers unchanged.
 
 ; --- Overlay GUI state ---
 guiVisible    := false   ; Whether the countdown overlay windows are currently shown
@@ -109,7 +112,7 @@ hkQuit        := "F7"
 ; -------------------------------------------------------
 ;  STARTUP
 ;  If this file has "_new" in its name, it was downloaded
-;  as an update � run SelfUpdate() to replace the old file.
+;  as an update — run SelfUpdate() to replace the old file.
 ;  Otherwise do the normal startup sequence.
 ; -------------------------------------------------------
 if InStr(A_ScriptFullPath, "_new.ahk") {
@@ -136,7 +139,7 @@ LoadConfig() {
 
     if !FileExist(iniFile) {
         WriteDefaultIni()
-        isInitialSetup := true   ; Flag for StartSetup � first run needs to claim chests
+        isInitialSetup := true   ; Flag for StartSetup — first run needs to claim chests
         ToolTip("No config found. Press F10 to set up chest coordinates.")
         Sleep(3000)
         ToolTip()
@@ -145,7 +148,7 @@ LoadConfig() {
 
     ; Settings section
     claimMins    := Float(IniRead(iniFile,   "Settings", "ClaimMinutes",  30.5))
-    claimOffset  := claimMins * 60 * 1000  ; Convert minutes ? milliseconds
+    claimOffset  := claimMins * 60 * 1000  ; Convert minutes → milliseconds
     idleTimeout  := Integer(IniRead(iniFile, "Settings", "IdleTimeout",   1000))
 
     ; Typing section
@@ -158,8 +161,9 @@ LoadConfig() {
     spamInterval := Integer(IniRead(iniFile, "Typing", "SpamInterval", 1))
     clickCount   := Integer(IniRead(iniFile, "Typing", "ClickCount",   3))
     chestOffset  := Integer(IniRead(iniFile, "Typing", "ChestOffset",  82))
+    catScale     := Float(IniRead(iniFile,   "Typing", "CatScale",     1.0))
 
-    ; Hotkeys section � read saved bindings, fall back to defaults if missing
+    ; Hotkeys section — read saved bindings, fall back to defaults if missing
     hkTyping    := IniRead(iniFile, "Hotkeys", "Typing",    "F6")
     hkSpam      := IniRead(iniFile, "Hotkeys", "Spam",      "F8")
     hkOverlay   := IniRead(iniFile, "Hotkeys", "Overlay",   "F9")
@@ -167,17 +171,18 @@ LoadConfig() {
     hkClaim     := IniRead(iniFile, "Hotkeys", "Claim",     "F12")
     hkQuit      := IniRead(iniFile, "Hotkeys", "Quit",      "F7")
 
-    ; Coords section � center of the cat, chests are derived from chestOffset
+    ; Coords section — center of the cat, chests are derived from chestOffset * catScale
     catCenterX := Integer(IniRead(iniFile, "Coords", "CatCenterX", 0))
     catCenterY := Integer(IniRead(iniFile, "Coords", "CatCenterY", 0))
 
-    ; Derive chest positions from center + offset
-    skinX := catCenterX - chestOffset
+    ; Derive chest positions from center + scaled offset
+    effectiveOffset := Round(chestOffset * catScale)
+    skinX := catCenterX - effectiveOffset
     skinY := catCenterY
-    cosX  := catCenterX + chestOffset
+    cosX  := catCenterX + effectiveOffset
     cosY  := catCenterY
 
-    ; Timestamps section � A_TickCount values of next scheduled claim
+    ; Timestamps section — A_TickCount values of next scheduled claim
     ; These persist across restarts so the timer survives closing the script
     skinNext := Integer(IniRead(iniFile, "Timestamps", "SkinNext", 0))
     cosNext  := Integer(IniRead(iniFile, "Timestamps", "CosNext",  0))
@@ -189,7 +194,7 @@ LoadConfig() {
         return
     }
 
-    ; All good � start the auto-claim checker, build the overlay, start the GUI update loop
+    ; All good — start the auto-claim checker, build the overlay, start the GUI update loop
     SetTimer(AutoClaim, 1000)   ; Check every second whether a chest is ready
     CreateOverlayGuis()
     ShowOverlayGuis()
@@ -214,6 +219,7 @@ WriteDefaultIni() {
     IniWrite(1,    iniFile, "Typing",   "SpamInterval")
     IniWrite(3,    iniFile, "Typing",   "ClickCount")
     IniWrite(82,   iniFile, "Typing",   "ChestOffset")
+    IniWrite(1.0,  iniFile, "Typing",   "CatScale")
     IniWrite("F6",  iniFile, "Hotkeys", "Typing")
     IniWrite("F8",  iniFile, "Hotkeys", "Spam")
     IniWrite("F9",  iniFile, "Hotkeys", "Overlay")
@@ -249,14 +255,14 @@ CheckForUpdate() {
         http.Send()
         latestVersion := Trim(http.ResponseText)
     } catch {
-        return  ; No internet or GitHub unreachable � silently skip
+        return  ; No internet or GitHub unreachable — silently skip
     }
 
     ; Validate response looks like a version string
     if !RegExMatch(latestVersion, "^\d+\.\d+\.\d+$")
-        return  ; Unexpected response � skip
+        return  ; Unexpected response — skip
 
-    ; Compare versions � only prompt if remote is strictly newer
+    ; Compare versions — only prompt if remote is strictly newer
     if !IsNewerVersion(currentVersion, latestVersion)
         return
 
@@ -286,7 +292,7 @@ CheckForUpdate() {
         return
     }
 
-    ; Launch the new version � it will handle replacing this file
+    ; Launch the new version — it will handle replacing this file
     Run('"' A_AhkPath '" "' newPath '"')
     ExitApp()
 }
@@ -355,7 +361,7 @@ RegisterHotkeys() {
 
 UnregisterHotkeys() {
     global hkTyping, hkSpam, hkOverlay, hkSetup, hkClaim, hkQuit
-    ; try/catch each one individually � if a binding doesn't exist yet it won't crash
+    ; try/catch each one individually — if a binding doesn't exist yet it won't crash
     try Hotkey(hkTyping,  "Off")
     try Hotkey(hkSpam,    "Off")
     try Hotkey(hkOverlay, "Off")
@@ -365,7 +371,7 @@ UnregisterHotkeys() {
 }
 
 ; -------------------------------------------------------
-;  F5 � SETTINGS (fixed hotkey, cannot be rebound)
+;  F5 — SETTINGS (fixed hotkey, cannot be rebound)
 ;
 ;  Opens a native Windows-style settings dialog with four
 ;  sections: Claimer, Realistic Typing, Spam, and Hotkeys.
@@ -379,19 +385,19 @@ OpenSettings() {
     global pauseMin, pauseMax, spamInterval
     global hkTyping, hkSpam, hkOverlay, hkSetup, hkClaim, hkQuit
 
-    sg := Gui("+AlwaysOnTop", "Bongo Cat � Settings")
+    sg := Gui("+AlwaysOnTop", "Bongo Cat — Settings")
     sg.SetFont("s9", "Segoe UI")
     sg.MarginX := 12
     sg.MarginY := 10
 
-    ; Layout constants � adjust these to change column widths
+    ; Layout constants — adjust these to change column widths
     lw  := 190          ; Label column width (px)
     ew  := 90           ; Edit field width (px)
     gw  := lw + ew + 30 ; GroupBox width (auto-calculated)
     row := "y+4"        ; Vertical gap between rows inside a GroupBox
 
     ; --- Claimer section ---
-    sg.Add("GroupBox", "w" gw " h104 Section", "Claimer")
+    sg.Add("GroupBox", "w" gw " h130 Section", "Claimer")
     sg.Add("Text",  "xp+10 yp+22 w" lw " h20 +0x200", "Claim interval (minutes):")
     sg.Add("Edit",  "vClaimMinutes x+8 w" ew " h20",
         Float(IniRead(iniFile, "Settings", "ClaimMinutes", 30.5)))
@@ -399,6 +405,8 @@ OpenSettings() {
     sg.Add("Edit",  "vClickCount x+8 w" ew " h20 Number", clickCount)
     sg.Add("Text",  "xs+10 " row " w" lw " h20 +0x200", "Chest offset from center (px):")
     sg.Add("Edit",  "vChestOffset x+8 w" ew " h20 Number", chestOffset)
+    sg.Add("Text",  "xs+10 " row " w" lw " h20 +0x200", "Cat scale multiplier:")
+    sg.Add("Edit",  "vCatScale x+8 w" ew " h20", catScale)
 
     ; --- Realistic Typing section ---
     sg.Add("GroupBox", "xs w" gw " h188 y+10 Section", "Realistic Typing")
@@ -482,13 +490,33 @@ StartCapture(btn, key, hkMap, *) {
         return
     capturing := true
     origText  := btn.Text
-    btn.Text  := "[ press a key... ]"
+    btn.Text  := "[ press key combo... ]"
 
-    ; InputHook: L1 = stop after 1 key, B = block the keypress from reaching other apps
-    ih := InputHook("L1 B")
-    ih.KeyOpt("{All}", "ES")  ; E = end on any key, S = suppress it
+    ; InputHook without L1 — wait for a non-modifier key
+    ; This allows Shift/Ctrl/Alt/Win to be held before the final key
+    ih := InputHook("B T5")  ; B = block, T5 = 5 second timeout
+    ih.KeyOpt("{All}", "E")   ; E = end on key (but we filter modifiers below)
+    
+    ; Ignore modifier-only presses — keep waiting
+    modifiers := ["LShift", "RShift", "LCtrl", "RCtrl", "LAlt", "RAlt", "LWin", "RWin"]
+    ih.OnEnd := (hook) => {
+        for mod in modifiers {
+            if (hook.EndKey = mod) {
+                hook.Start()  ; Restart — keep waiting
+                return
+            }
+        }
+    }
+    
     ih.Start()
     ih.Wait()
+
+    ; Timeout or invalid key
+    if (ih.EndReason = "Timeout" || ih.EndKey = "") {
+        btn.Text := origText
+        capturing := false
+        return
+    }
 
     key2 := ih.EndKey
 
@@ -505,8 +533,7 @@ StartCapture(btn, key, hkMap, *) {
 
     hk := mods . key2
 
-    ; Try registering the hotkey temporarily to validate the syntax.
-    ; If AHK throws an error, the key combination is not usable.
+    ; Try registering the hotkey temporarily to validate the syntax
     try {
         Hotkey(hk, ToggleTyping, "Off")
         hkMap[key] := hk
@@ -541,6 +568,12 @@ SaveSettingsFromMap(sg, hkMap, *) {
         return
     }
 
+    cs := Float(saved.CatScale)
+    if (cs < 0.5 || cs > 2.0) {
+        MsgBox("Cat scale must be between 0.5 and 2.0.", "Error", 16)
+        return
+    }
+
     UnregisterHotkeys()  ; Remove old bindings before applying new ones
 
     ; Persist to .ini
@@ -555,6 +588,7 @@ SaveSettingsFromMap(sg, hkMap, *) {
     IniWrite(saved.SpamInterval,  iniFile, "Typing",   "SpamInterval")
     IniWrite(saved.ClickCount,    iniFile, "Typing",   "ClickCount")
     IniWrite(saved.ChestOffset,   iniFile, "Typing",   "ChestOffset")
+    IniWrite(saved.CatScale,      iniFile, "Typing",   "CatScale")
     IniWrite(hkMap["Typing"],     iniFile, "Hotkeys",  "Typing")
     IniWrite(hkMap["Spam"],       iniFile, "Hotkeys",  "Spam")
     IniWrite(hkMap["Overlay"],    iniFile, "Hotkeys",  "Overlay")
@@ -574,10 +608,12 @@ SaveSettingsFromMap(sg, hkMap, *) {
     spamInterval := Integer(saved.SpamInterval)
     clickCount   := Integer(saved.ClickCount)
     chestOffset  := Integer(saved.ChestOffset)
+    catScale     := Float(saved.CatScale)
 
-    ; Recalculate chest positions from saved center + new offset
-    skinX := catCenterX - chestOffset
-    cosX  := catCenterX + chestOffset
+    ; Recalculate chest positions from saved center + new scaled offset
+    effectiveOffset := Round(chestOffset * catScale)
+    skinX := catCenterX - effectiveOffset
+    cosX  := catCenterX + effectiveOffset
     hkTyping     := hkMap["Typing"]
     hkSpam       := hkMap["Spam"]
     hkOverlay    := hkMap["Overlay"]
@@ -607,7 +643,7 @@ SaveSettingsFromMap(sg, hkMap, *) {
 ;    - Any new activity sets userIdle = false immediately, pausing it.
 ;
 ;  The ~* prefix means the hotkey fires but the key still passes through
-;  to whatever application is active � so this is purely passive monitoring.
+;  to whatever application is active — so this is purely passive monitoring.
 ; -------------------------------------------------------
 ~*LButton:: SetTimer(ResumeAfterIdle, -idleTimeout)
 ~*RButton:: SetTimer(ResumeAfterIdle, -idleTimeout)
@@ -623,7 +659,7 @@ WM_MOUSEMOVE(wParam, lParam, msg, hwnd2) {
 
 ResumeAfterIdle() {
     global userIdle
-    userIdle := true  ; No activity for idleTimeout ms � safe to resume typing
+    userIdle := true  ; No activity for idleTimeout ms — safe to resume typing
 }
 
 ; -------------------------------------------------------
@@ -688,7 +724,7 @@ ToggleSpam(*) {
     userIdle := true
     if spamming {
         SetTimer(DoSpam, spamInterval)
-        ; No tooltip on enable � intentionally silent to avoid interrupting work
+        ; No tooltip on enable — intentionally silent to avoid interrupting work
     } else {
         SetTimer(DoSpam, 0)
         ToolTip("Bongo Cat: OFF")
@@ -727,9 +763,9 @@ StartSetup(*) {
     setupStep := 1
 
     if isInitialSetup
-        ToolTip("SETUP (first run): Click the CENTER of your cat � chests will be claimed immediately")
+        ToolTip("SETUP (first run): Click the CENTER of your cat — chests will be claimed immediately")
     else
-        ToolTip("SETUP: Click the CENTER of your cat � timers will NOT be reset")
+        ToolTip("SETUP: Click the CENTER of your cat — timers will NOT be reset")
 
     InstallSetupHook()
 }
@@ -737,7 +773,7 @@ StartSetup(*) {
 ; Force claim both chests right now and reset the timers
 ManualClaim(*) {
     global skinX, skinY, cosX, cosY, bongohwnd, exeName
-    global skinNext, cosNext, claimOffset, iniFile
+    global skinNext, cosNext, claimOffset, iniFile, catCenterX, catCenterY, chestOffset, catScale
 
     if (catCenterX = 0) {
         MsgBox("No coordinates saved. Run setup first.", "Error", 16)
@@ -749,10 +785,11 @@ ManualClaim(*) {
         return
     }
 
-    ; Recalculate in case chestOffset changed since last setup
-    skinX := catCenterX - chestOffset
+    ; Recalculate in case chestOffset or catScale changed since last setup
+    effectiveOffset := Round(chestOffset * catScale)
+    skinX := catCenterX - effectiveOffset
     skinY := catCenterY
-    cosX  := catCenterX + chestOffset
+    cosX  := catCenterX + effectiveOffset
     cosY  := catCenterY
 
     now      := A_TickCount
@@ -771,7 +808,7 @@ ManualClaim(*) {
     ToolTip()
 }
 
-; Clean shutdown � stop all timers and exit
+; Clean shutdown — stop all timers and exit
 QuitScript(*) {
     SetTimer(AutoClaim, 0)
     SetTimer(UpdateGui, 0)
@@ -836,7 +873,7 @@ DoTypingRhythm() {
 ; -------------------------------------------------------
 ;  DOSPAM
 ;  The Spam timer callback.
-;  Runs in a tight while-loop sending F13�F23 in batches.
+;  Runs in a tight while-loop sending F13–F23 in batches.
 ;  Pauses briefly if a chest claim is in progress (claiming = true)
 ;  to avoid the two operations conflicting.
 ;
@@ -862,11 +899,11 @@ DoSpam() {
 }
 
 ; -------------------------------------------------------
-;  SETUP � LOW-LEVEL MOUSE HOOK
+;  SETUP — LOW-LEVEL MOUSE HOOK
 ;
 ;  Bongo Cat is a DirectX overlay with click-through enabled,
 ;  meaning normal AHK ~LButton hooks don't fire when you click
-;  on it � the click passes through to whatever is behind it.
+;  on it — the click passes through to whatever is behind it.
 ;
 ;  To detect clicks on the overlay during setup, we use a
 ;  Windows low-level mouse hook (WH_MOUSE_LL, id=14) via DllCall.
@@ -876,19 +913,19 @@ DoSpam() {
 ;  IMPORTANT: This only works if the script and Bongo Cat are
 ;  running at the same privilege level. If Bongo Cat is running
 ;  as Administrator, this script must also run as Administrator.
-;  The reverse is also true � do NOT run Bongo Cat as admin
+;  The reverse is also true — do NOT run Bongo Cat as admin
 ;  if you can avoid it.
 ;
 ;  Flow:
-;    StartSetup()         ? InstallSetupHook()
-;    User clicks anywhere ? SetupMouseProc fires (on OS thread)
-;                         ? schedules SetupPoll() via SetTimer
-;    SetupPoll()          ? reads mouse position, records coordinates
-;                         ? after step 2, UninstallSetupHook()
+;    StartSetup()         → InstallSetupHook()
+;    User clicks anywhere → SetupMouseProc fires (on OS thread)
+;                         → schedules SetupPoll() via SetTimer
+;    SetupPoll()          → reads mouse position, records coordinates
+;                         → after step 2, UninstallSetupHook()
 ; -------------------------------------------------------
 SetupPoll() {
     global setupStep, catCenterX, catCenterY, skinX, skinY, cosX, cosY
-    global iniFile, claimOffset, skinNext, cosNext, bongohwnd, chestOffset
+    global iniFile, claimOffset, skinNext, cosNext, bongohwnd, chestOffset, catScale
     global isInitialSetup
 
     if (setupStep = 0) {
@@ -900,12 +937,13 @@ SetupPoll() {
     MouseGetPos(&mx, &my)
 
     if (setupStep = 1) {
-        ; Record cat center and derive chest positions
+        ; Record cat center and derive chest positions with scale
         catCenterX := mx
         catCenterY := my
-        skinX      := catCenterX - chestOffset
+        effectiveOffset := Round(chestOffset * catScale)
+        skinX      := catCenterX - effectiveOffset
         skinY      := catCenterY
-        cosX       := catCenterX + chestOffset
+        cosX       := catCenterX + effectiveOffset
         cosY       := catCenterY
 
         setupStep := 0
@@ -918,7 +956,7 @@ SetupPoll() {
         IniWrite(catCenterY, iniFile, "Coords", "CatCenterY")
 
         if isInitialSetup {
-            ; First run � claim chests immediately and start all timers
+            ; First run — claim chests immediately and start all timers
             isInitialSetup := false
 
             Sleep(200)
@@ -941,7 +979,7 @@ SetupPoll() {
             ShowOverlayGuis()
             SetTimer(UpdateGui, 1000)
         } else {
-            ; Subsequent run � only update position, leave timers completely untouched
+            ; Subsequent run — only update position, leave timers completely untouched
             ToolTip("Position updated. Timers unchanged.")
             Sleep(2000)
             ToolTip()
@@ -954,7 +992,7 @@ SetupPoll() {
 }
 
 setupMouseHook := 0   ; Handle to the installed Windows hook (0 = not installed)
-setupMouseCB   := 0   ; Callback pointer � must be kept alive to prevent garbage collection
+setupMouseCB   := 0   ; Callback pointer — must be kept alive to prevent garbage collection
 
 InstallSetupHook() {
     global setupMouseHook, setupMouseCB
@@ -962,7 +1000,7 @@ InstallSetupHook() {
     ; "Fast" means it runs on the calling thread without an AHK thread switch
     setupMouseCB   := CallbackCreate(SetupMouseProc, "Fast")
     setupMouseHook := DllCall("SetWindowsHookEx",
-        "int",  14,           ; WH_MOUSE_LL � low-level mouse hook
+        "int",  14,           ; WH_MOUSE_LL — low-level mouse hook
         "ptr",  setupMouseCB, ; Our callback function
         "ptr",  0,            ; hMod (0 = current process)
         "uint", 0,            ; dwThreadId (0 = all threads)
@@ -982,14 +1020,14 @@ UninstallSetupHook() {
 }
 
 ; Called by Windows on every mouse event while the hook is installed.
-; Must return quickly � heavy work is dispatched via SetTimer.
+; Must return quickly — heavy work is dispatched via SetTimer.
 SetupMouseProc(nCode, wParam, lParam) {
     global setupStep
     ; nCode >= 0 means we should process the event
     ; wParam 0x0201 = WM_LBUTTONDOWN (left mouse button pressed)
     if (nCode >= 0 && wParam = 0x0201 && setupStep > 0)
         SetTimer(SetupPoll, -1)  ; -1 = run once immediately on AHK's thread
-    ; Always call the next hook in the chain � required by Windows hook protocol
+    ; Always call the next hook in the chain — required by Windows hook protocol
     return DllCall("CallNextHookEx", "ptr", 0, "int", nCode, "ptr", wParam, "ptr", lParam, "ptr")
 }
 
@@ -1019,14 +1057,14 @@ CreateOverlayGuis() {
     skinGui := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20", "")
     skinGui.BackColor := "111111"
     skinGui.SetFont("s9 cWhite bold", "Segoe UI")
-    skinGui.Add("Text", "vSkinLabel w110 Center", "?? Skin")
+    skinGui.Add("Text", "vSkinLabel w110 Center", "🎁 Skin")
     skinGui.Add("Text", "vSkinTimer w110 Center", "--:--")
     WinSetTransparent(210, skinGui)
 
     cosGui := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20", "")
     cosGui.BackColor := "111111"
     cosGui.SetFont("s9 cWhite bold", "Segoe UI")
-    cosGui.Add("Text", "vCosLabel w110 Center", "? Cosmetic")
+    cosGui.Add("Text", "vCosLabel w110 Center", "✨ Cosmetic")
     cosGui.Add("Text", "vCosTimer w110 Center", "--:--")
     WinSetTransparent(210, cosGui)
 }
@@ -1084,7 +1122,7 @@ UpdateGui() {
 ; -------------------------------------------------------
 AutoClaim() {
     global skinX, skinY, cosX, cosY, bongohwnd, exeName
-    global skinNext, cosNext, claimOffset, iniFile
+    global skinNext, cosNext, claimOffset, iniFile, catCenterX, catCenterY, chestOffset, catScale
 
     if (catCenterX = 0)
         return  ; Setup hasn't been run yet
@@ -1093,10 +1131,11 @@ AutoClaim() {
     if !bongohwnd
         return  ; Bongo Cat isn't running
 
-    ; Always recalculate from center � picks up any chestOffset changes from Settings
-    skinX := catCenterX - chestOffset
+    ; Always recalculate from center — picks up any chestOffset or catScale changes from Settings
+    effectiveOffset := Round(chestOffset * catScale)
+    skinX := catCenterX - effectiveOffset
     skinY := catCenterY
-    cosX  := catCenterX + chestOffset
+    cosX  := catCenterX + effectiveOffset
     cosY  := catCenterY
 
     now := A_TickCount
@@ -1125,7 +1164,7 @@ AutoClaim() {
 ;  user is moving their mouse at the same time.
 ;
 ;  After clicking, WinActivate restores focus to whichever
-;  window was active before � preventing the click from
+;  window was active before — preventing the click from
 ;  stealing keyboard focus away from the user's work.
 ;
 ;  The `claiming` flag is set during the click so DoSpam
@@ -1144,7 +1183,7 @@ DoClick(x, y, hwnd) {
     Sleep(30)                     ; Give the overlay time to register the hover
     Loop clickCount {
         SendEvent("{LButton down}")
-        Sleep(60)                 ; Hold duration � needs to be long enough for the overlay to register
+        Sleep(60)                 ; Hold duration — needs to be long enough for the overlay to register
         SendEvent("{LButton up}")
         Sleep(30)                 ; Gap between repeated clicks
     }
@@ -1164,7 +1203,7 @@ DoClick(x, y, hwnd) {
 ; -------------------------------------------------------
 
 ; Converts a millisecond duration to MM:SS display string
-; e.g. 125000ms ? "02:05"
+; e.g. 125000ms → "02:05"
 MsToMMSS(ms) {
     if (ms <= 0)
         return "00:00"
