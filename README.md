@@ -43,7 +43,7 @@ F10 behaves differently depending on whether you've run it before.
 1. Make sure Bongo Cat is running and **both chests are visible** (the `1000` counters are shown)
 2. Press **F10** to enter setup mode
 3. Click somewhere on the **upper body or forehead of your cat** — roughly the center horizontally
-4. The script calculates both chest positions using a fixed offset (82px by default), **claims both chests immediately**, and starts the 30.5-minute timer
+4. The script calculates both chest positions using your configured center offset (66px default at `1.0x` scale), **claims both chests immediately**, and starts the 30.5-minute timer
 
 ### Moving the cat (subsequent F10 presses)
 
@@ -74,7 +74,7 @@ All hotkeys except F5 are fully rebindable from the Settings screen.
 ## Features
 
 ### Auto Chest Claimer
-Checks every second and automatically clicks both chests when the timer is up. The script moves your mouse to each chest, clicks it, and immediately returns your cursor to where it was — the whole thing takes under 200ms. Focus is restored to whatever window you were using.
+Checks every second and automatically clicks both chests when the timer is up. The script moves your mouse to each chest, clicks it, and immediately returns your cursor to where it was. Focus is restored to whatever window you were using.
 
 The claim interval defaults to **30.5 minutes** (slightly over 30 to account for any timer drift in Bongo Cat). Both chests have independent timers with a ~1 second offset between them.
 
@@ -87,7 +87,7 @@ Generates keystrokes in a human-like pattern: a random burst of N keystrokes, a 
 Good for: keeping the computer awake and accumulating points passively while you're at your desk but not actively typing.
 
 ### Spam (F8)
-Sends keystrokes as fast as possible (~11 keystrokes every 2ms). Generates a large number of points quickly.
+Sends keystrokes in very fast batches (F13-F23 repeatedly). Generates a large number of points quickly.
 
 > ⚠️ **Heads up:** Spam is CPU-intensive and will noticeably load your system. It's not recommended for use while actively working. Also, keyboard shortcuts and key combinations may not work properly while spam is running. Use it when you're away from the computer.
 
@@ -104,7 +104,8 @@ Press F5 to open the settings window. Changes apply immediately when you click O
 |---------|---------|-------------|
 | Claim interval (minutes) | `30.5` | How long to wait between auto-claims |
 | Clicks per chest | `3` | How many times to click each chest (more = more reliable) |
-| Chest offset from center (px) | `82` | Horizontal distance in pixels from the cat's center to each chest. Increase or decrease this if the script is missing the chests on your screen. |
+| Chest offset from center (px) | `66` | Horizontal base distance in pixels from the cat's center to each chest at `1.0x` scale. Increase or decrease this if the script is missing the chests on your screen. |
+| Cat scale multiplier | `1.0` | Your in-game cat scale. Effective offset = `Chest offset × Cat scale`. |
 
 ### Realistic Typing
 | Setting | Default | Description |
@@ -140,6 +141,7 @@ The script is designed to minimise disruption: your cursor is returned to exactl
 - The script generates no exploits and uses no external tools — it just simulates mouse clicks and keystrokes
 - Detection status is believed to be **Undetected**
 - Settings survive script restarts — timestamps and the cat's position are saved in `BongoCat.ini`
+- The script checks `version.txt` on GitHub at startup and can self-update when a newer version is available
 - If you move your cat widget on screen, press **F10** and click the cat once to update the position
 - UI elements on websites or applications located behind your cat widget may occasionally receive clicks — this is a Windows responsiveness side effect, not a script bug
 
