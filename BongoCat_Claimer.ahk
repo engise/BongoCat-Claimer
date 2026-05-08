@@ -37,7 +37,7 @@
 ;  To release a new version: bump this string and push
 ;  version.txt with the same value to the repo.
 ; -------------------------------------------------------
-currentVersion := "1.2.2"
+currentVersion := "1.2.3"
 githubRawBase  := "https://raw.githubusercontent.com/engise/BongoCat-Claimer/main/"
 
 ; -------------------------------------------------------
@@ -73,9 +73,10 @@ pauseMax      := 900     ; Maximum ms pause between bursts
 spamInterval  := 1       ; ms between spam keystroke batches (lower = faster)
 clickCount    := 3       ; How many times to click each chest per claim attempt.
                          ; More clicks = more reliable on laggy systems.
-chestOffset   := 82      ; Horizontal pixel distance from cat center to each chest.
-                         ; Left chest = centerX - chestOffset, Right chest = centerX + chestOffset.
-                         ; Measured at default Bongo Cat scale — adjust in Settings if needed.
+chestOffset   := 66      ; Horizontal pixel distance from cat center to each chest at 1.0x scale.
+                         ; Left chest = centerX - (chestOffset * catScale)
+                         ; Right chest = centerX + (chestOffset * catScale)
+                         ; Originally measured as 82px at 1.25x scale → 82/1.25 = 65.6 ≈ 66px base.
 catScale      := 1.0     ; Bongo Cat scale multiplier (1.0 = default size).
                          ; If you've scaled your cat in Bongo Cat settings (0.75x, 1.5x, etc.),
                          ; set this to match. The chestOffset is multiplied by this value.
@@ -161,7 +162,7 @@ LoadConfig() {
     pauseMax     := Integer(IniRead(iniFile, "Typing", "PauseMax",     900))
     spamInterval := Integer(IniRead(iniFile, "Typing", "SpamInterval", 1))
     clickCount   := Integer(IniRead(iniFile, "Typing", "ClickCount",   3))
-    chestOffset  := Integer(IniRead(iniFile, "Typing", "ChestOffset",  82))
+    chestOffset  := Integer(IniRead(iniFile, "Typing", "ChestOffset",  66))
     catScale     := Float(IniRead(iniFile,   "Typing", "CatScale",     1.0))
 
     ; Hotkeys section — read saved bindings, fall back to defaults if missing
@@ -219,7 +220,7 @@ WriteDefaultIni() {
     IniWrite(900,  iniFile, "Typing",   "PauseMax")
     IniWrite(1,    iniFile, "Typing",   "SpamInterval")
     IniWrite(3,    iniFile, "Typing",   "ClickCount")
-    IniWrite(82,   iniFile, "Typing",   "ChestOffset")
+    IniWrite(66,   iniFile, "Typing",   "ChestOffset")
     IniWrite(1.0,  iniFile, "Typing",   "CatScale")
     IniWrite("F6",  iniFile, "Hotkeys", "Typing")
     IniWrite("F8",  iniFile, "Hotkeys", "Spam")
