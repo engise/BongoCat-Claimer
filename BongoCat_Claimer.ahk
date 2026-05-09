@@ -37,7 +37,7 @@
 ;  To release a new version: bump this string and push
 ;  version.txt with the same value to the repo.
 ; -------------------------------------------------------
-currentVersion := "1.2.4"
+currentVersion := "1.3.0"
 githubRawBase  := "https://raw.githubusercontent.com/engise/BongoCat-Claimer/main/"
 
 ; -------------------------------------------------------
@@ -327,7 +327,7 @@ SelfUpdate() {
 }
 
 ; -------------------------------------------------------
-;  ISNEWERVERSIONERSION
+;  ISNEWERVERSION
 ;  Compares two "major.minor.patch" version strings.
 ;  Returns true if `latest` is strictly greater than `current`.
 ; -------------------------------------------------------
@@ -348,12 +348,11 @@ IsNewerVersion(current, latest) {
 ; -------------------------------------------------------
 ;  HOTKEY REGISTRATION
 ;  RegisterHotkeys() binds all configurable actions to
-;  their current hk* values. Called once on startup and
-;  again after settings are saved with new bindings.
+;  their current hk* values (from .ini). Called on startup
+;  and again after Reload() following Settings OK.
 ;
-;  UnregisterHotkeys() disables all current bindings
-;  before re-registering with new keys, so there are no
-;  conflicts or duplicate bindings.
+;  UnregisterHotkeys() is available if you need to clear
+;  bindings without exiting (currently unused).
 ; -------------------------------------------------------
 RegisterHotkeys() {
     global hkTyping, hkSpam, hkOverlay, hkSetup, hkClaim, hkQuit
@@ -430,7 +429,7 @@ UnregisterHotkeys() {
 ;
 ;  Opens a native Windows-style settings dialog with four
 ;  sections: Claimer, Realistic Typing, Spam, and Hotkeys.
-;  Changes are applied immediately on OK without restart.
+;  OK saves to .ini and Reload() — full refresh from disk.
 ; -------------------------------------------------------
 F5:: OpenSettings()
 
@@ -581,9 +580,10 @@ StartCapture(btn, key, hkMap, *) {
 
     hk := mods . key2
 
-    ; Try registering the hotkey temporarily to validate the syntax
+    ; Try registering the hotkey briefly to validate syntax (must not bind to a real handler yet)
     try {
-        Hotkey(hk, ToggleTyping, "Off")
+        Hotkey(hk, (*) => {}, "On")
+        Hotkey(hk, "Off")
         hkMap[key] := hk
         btn.Text   := hk
     } catch {
@@ -606,16 +606,12 @@ StartCapture(btn, key, hkMap, *) {
 ; -------------------------------------------------------
 ;  SAVESETTINGSFROMMAP
 ;  Triggered when OK is clicked in Settings.
-;  Validates input, unregisters old hotkeys, writes all
-;  values to .ini, applies them to live variables, and
-;  re-registers hotkeys with the new bindings.
+;  Validates input, writes all values to .ini, then Reload()
+;  so the script restarts cleanly with LoadConfig() + timers +
+;  overlay + RegisterHotkeys() all driven from the saved file.
 ; -------------------------------------------------------
 SaveSettingsFromMap(sg, hkMap, *) {
-    global iniFile, claimOffset, idleTimeout
-    global burstMin, burstMax, fastDelayMin, fastDelayMax
-    global pauseMin, pauseMax, spamInterval, clickCount, chestOffset, catScale
-    global hkTyping, hkSpam, hkOverlay, hkSetup, hkClaim, hkQuit
-    global catCenterX, catCenterY, skinX, cosX
+    global iniFile
 
     saved := sg.Submit()  ; Reads all vName control values into an object
 
@@ -631,8 +627,6 @@ SaveSettingsFromMap(sg, hkMap, *) {
         MsgBox("Cat scale must be between 0.5 and 2.0.", "Error", 16)
         return
     }
-
-    UnregisterHotkeys()  ; Remove old bindings before applying new ones
 
     ; Persist to .ini
     IniWrite(saved.ClaimMinutes,  iniFile, "Settings", "ClaimMinutes")
@@ -654,52 +648,8 @@ SaveSettingsFromMap(sg, hkMap, *) {
     IniWrite(hkMap["Claim"],      iniFile, "Hotkeys",  "Claim")
     IniWrite(hkMap["Quit"],       iniFile, "Hotkeys",  "Quit")
 
-    ; Apply to live variables immediately (no restart needed)
-    claimOffset  := cm * 60 * 1000
-    idleTimeout  := Integer(saved.IdleTimeout)
-    burstMin     := Integer(saved.BurstMin)
-    burstMax     := Integer(saved.BurstMax)
-    fastDelayMin := Integer(saved.FastDelayMin)
-    fastDelayMax := Integer(saved.FastDelayMax)
-    pauseMin     := Integer(saved.PauseMin)
-    pauseMax     := Integer(saved.PauseMax)
-    spamInterval := Integer(saved.SpamInterval)
-    clickCount   := Integer(saved.ClickCount)
-    chestOffset  := Integer(saved.ChestOffset)
-    catScale     := Float(saved.CatScale)
-
-    ; Recalculate chest positions from saved center + new scaled offset
-    effectiveOffset := Round(chestOffset * catScale)
-    skinX := catCenterX - effectiveOffset
-    cosX  := catCenterX + effectiveOffset
-    ; Update hotkey variables with new bindings
-    hkTyping     := hkMap["Typing"]
-    hkSpam       := hkMap["Spam"]
-    hkOverlay    := hkMap["Overlay"]
-    hkSetup      := hkMap["Setup"]
-    hkClaim      := hkMap["Claim"]
-    hkQuit       := hkMap["Quit"]
-
-    ; Re-register with error handling
-    try {
-        RegisterHotkeys()
-    } catch as e {
-        MsgBox("Failed to register hotkeys: " e.Message "`n`nPlease restart the script.", "Error", 0x10)
-        return
-    }
-
     sg.Destroy()
-    
-    ; Debug: verify settings were saved
-    debugMsg := "Settings saved!`n`nHotkeys:`n"
-    debugMsg .= "Typing: " hkMap["Typing"] " (saved as " IniRead(iniFile, "Hotkeys", "Typing", "?") ")`n"
-    debugMsg .= "Spam: " hkMap["Spam"] " (saved as " IniRead(iniFile, "Hotkeys", "Spam", "?") ")`n"
-    debugMsg .= "ChestOffset: " saved.ChestOffset " (saved as " IniRead(iniFile, "Typing", "ChestOffset", "?") ")`n"
-    debugMsg .= "CatScale: " saved.CatScale " (saved as " IniRead(iniFile, "Typing", "CatScale", "?") ")"
-    
-    ToolTip(debugMsg)
-    Sleep(3000)
-    ToolTip()
+    Reload()
 }
 
 ; -------------------------------------------------------
